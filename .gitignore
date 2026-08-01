@@ -1,4 +1,5 @@
 venv/
+.venv/
 __pycache__/
 .env
 credentials.json
@@ -6,3 +7,5 @@ token.json
 coo_agent.db
 *.db
 ailog.md
+.idea/
+out/

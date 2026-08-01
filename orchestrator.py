@@ -11,15 +11,16 @@ import argparse
 import sys
 
 from extraction import extract_batch
-from ingestion import DEFAULT_FIXTURES, ingest
+from ingestion import DEFAULT_CORPUS, DEFAULT_FIXTURES, ingest
 from output import deliver
 from store import Store
 from synthesis import synthesize_briefing
 
 
 def run_pipeline(
-    source: str = "fixtures",
+    source: str = "corpus",
     fixtures_path: str = str(DEFAULT_FIXTURES),
+    corpus_dir: str = str(DEFAULT_CORPUS),
     channel: str | None = None,
     dry_run: bool = False,
     verbose: bool = True,
@@ -42,7 +43,12 @@ def run_pipeline(
 
     try:
         log(f"[1/5] Ingesting from {source}...")
-        messages = ingest(source=source, fixtures_path=fixtures_path, channel=channel)
+        messages = ingest(
+            source=source,
+            fixtures_path=fixtures_path,
+            channel=channel,
+            corpus_dir=corpus_dir,
+        )
         log(f"      {len(messages)} message(s) ingested.")
 
         if store and incremental:
@@ -94,12 +100,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the COO Agent briefing pipeline.")
     parser.add_argument(
         "--source",
-        choices=("fixtures", "gmail", "slack"),
-        default="fixtures",
+        choices=("corpus", "fixtures", "gmail", "slack"),
+        default="corpus",
         help=(
-            "Where to read messages from (default: fixtures). "
-            "'gmail' reads a JSON dump of raw Gmail API messages."
+            "Where to read messages from (default: corpus). "
+            "'corpus' reads data/corpus/*.jsonl and carries artifact_id through to "
+            "the evidence spans; 'gmail' reads a JSON dump of raw Gmail API messages."
         ),
+    )
+    parser.add_argument(
+        "--corpus",
+        default=str(DEFAULT_CORPUS),
+        help="Directory of .jsonl artifacts, used when --source=corpus.",
     )
     parser.add_argument(
         "--fixtures",
@@ -133,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
         result = run_pipeline(
             source=args.source,
             fixtures_path=args.fixtures,
+            corpus_dir=args.corpus,
             channel=args.channel,
             dry_run=args.dry_run,
             persist=not args.no_persist,

@@ -54,3 +54,47 @@ build the full generator alongside it.**
   that mention a memory leak on a different service three weeks earlier. Q_001's
   answer key forbids "memory leak" — top-k lexical retrieval will pull these.
 - `--only-source email` should be materially worse: only f3 lives in email.
+
+## From Agent 2 (spine + convergence) — 2026-08-01
+
+Answers to Agent 1's four blockers, in order:
+
+1. **`docs/schema.md` now exists and is pushed.** It was written but sat behind a
+   `.gitignore` entry for `docs/`, which is exactly why two pipelines ended up on
+   two different schemas. `scripts/demo.sh` and `scripts/smoke.sh` are pushed too.
+   The corpus does **not** need regenerating: the record shape you built against
+   is the one that landed, field for field.
+2. **Fixed.** `docs/schema.md`, `scripts/`, `.gitignore` updated. `CLAUDE.md` and
+   `.claude/` are still untracked — Brody's call, not mine.
+3. **You are right, and BUILD_PLAN §0 was stale.** The `git rm` of the six root
+   modules is void. 6c69a23 turned them into a working pipeline, so the merge kept
+   them and the spine moved in alongside instead of replacing them.
+4. **Resolved: Gemini.** BUILD_PLAN §1 item 5 as you read it was the pre-swap text;
+   e1d6f6d had already flipped it, and that version won the merge. There is one
+   client now, `src/llm.py`, and nothing else talks to the API.
+
+**Architecture, after the merge.** Still extract-then-store, not retrieve-then-extract.
+Extraction runs over all 200 artifacts at ingest (5 chunked calls), and retrieval is
+embedding search over topics. BUILD_PLAN §5.1 argues the other order; that is Agent 3's
+call to make and this merge does not block it — `check_evidence_spans()` works on any
+list of candidate artifacts, whatever chose them.
+
+**What every downstream agent now gets for free:**
+
+- Messages carry `artifact_id`, `container_id`, `parent_id`, `recipients` end to end.
+  `store.message_id()` returns the artifact_id, so a span cites something retrievable.
+- `extraction.check_evidence_spans(items, messages)` — exact substring check after
+  whitespace normalization. Use `src.schema.normalize_ws` on both sides or it will
+  disagree with itself.
+- `agent.Answer.uncited_claims` catches a fabricated artifact id in code.
+- Evidence carries the artifact's own timestamp, joined from `messages`. `last_seen`
+  is ingest time and is not a fact about the world.
+
+**Known gaps, not papered over:**
+
+- `gemini-3.6-flash` free tier is ~20 requests/day. A full 200-artifact run plus a few
+  questions exhausts it and the client falls through to `gemini-3.5-flash`. Expect the
+  fallback line in the demo; it is the client working, not failing.
+- Synthesis truncates the briefing mid-sentence at ~50 words on the 200-artifact corpus
+  (`synthesis.py` is nobody's declared lane — flagging, not fixing).
+- Silence detection (Q_005) and explicit conflict records are still unbuilt.

@@ -58,7 +58,9 @@ def check(name: str, ok: bool, detail: str) -> None:
 def load_corpus() -> tuple[list[dict], list[str]]:
     records, problems = [], []
     for path in sorted(CORPUS.glob("*.jsonl")):
-        for line_no, line in enumerate(path.read_text().splitlines(), start=1):
+        for line_no, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
             if not line.strip():
                 continue
             try:
@@ -86,8 +88,8 @@ def entity_vocabulary(world: dict) -> set[str]:
 
 
 def main() -> int:
-    world = json.loads((DATA / "world.json").read_text())
-    key = json.loads((DATA / "answer_key.json").read_text())
+    world = json.loads((DATA / "world.json").read_text(encoding="utf-8"))
+    key = json.loads((DATA / "answer_key.json").read_text(encoding="utf-8"))
     records, parse_problems = load_corpus()
     by_id = {r["artifact_id"]: r for r in records}
     entities = entity_vocabulary(world)

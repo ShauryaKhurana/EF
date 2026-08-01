@@ -25,6 +25,7 @@ import orchestrator
 import output
 import store as store_mod
 import synthesis
+import src.llm as llm
 
 load_dotenv()
 
@@ -82,6 +83,10 @@ def expect_raises(exc_type, fn, contains: str | None = None) -> None:
 
 # --- Fake model responses ----------------------------------------------------
 
+# Spans below are copied verbatim out of sample_data/messages.json. They have to be:
+# extract() re-checks every span against the source text and discards items whose
+# quote isn't there, so a fake that paraphrases would be dropped exactly like a real
+# hallucination would.
 FAKE_ITEMS = {
     "items": [
         {
@@ -91,6 +96,12 @@ FAKE_ITEMS = {
             "owner": "Marcus",
             "blocker": "Legal sign-off pending on the data retention change",
             "confidence": "high",
+            "evidence": [
+                {
+                    "artifact_id": "msg_1",
+                    "span": "Nothing moves until legal signs off on the data retention change",
+                }
+            ],
         },
         {
             "source": "email",
@@ -99,6 +110,12 @@ FAKE_ITEMS = {
             "owner": "Dan",
             "blocker": None,
             "confidence": "high",
+            "evidence": [
+                {
+                    "artifact_id": "msg_2",
+                    "span": "we're on schedule to ship to TestFlight next Wednesday",
+                }
+            ],
         },
         {
             "source": "slack",
@@ -107,6 +124,12 @@ FAKE_ITEMS = {
             "owner": None,
             "blocker": None,
             "confidence": "low",
+            "evidence": [
+                {
+                    "artifact_id": "msg_4",
+                    "span": "kind of a mess right now, still digging into it",
+                }
+            ],
         },
     ]
 }
@@ -308,19 +331,29 @@ def test_extraction_validator_accepts_good_payload():
 
 
 def test_extraction_validator_rejects_bad_payloads():
+    ev = '"evidence":[{"artifact_id":"msg_1","span":"x"}]'
     cases = [
         ('{"items":[{"source":"teams","topic":"X","status":"on_track","owner":null,'
-         '"blocker":null,"confidence":"high"}]}', "expected one of"),
+         '"blocker":null,"confidence":"high",' + ev + '}]}', "expected one of"),
         ('{"items":[{"topic":"X","status":"on_track","owner":null,"blocker":null,'
-         '"confidence":"high"}]}', "missing field"),
+         '"confidence":"high",' + ev + '}]}', "missing field"),
         ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
-         '"blocker":null,"confidence":"high","eta":"fri"}]}', "unexpected field"),
+         '"blocker":null,"confidence":"high",' + ev + ',"eta":"fri"}]}', "unexpected field"),
         ('{"items":[{"source":"slack","topic":"","status":"on_track","owner":null,'
-         '"blocker":null,"confidence":"high"}]}', "non-empty string"),
+         '"blocker":null,"confidence":"high",' + ev + '}]}', "non-empty string"),
         ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":7,'
-         '"blocker":null,"confidence":"high"}]}', "string or null"),
+         '"blocker":null,"confidence":"high",' + ev + '}]}', "string or null"),
         ("[]", "Expected a JSON object"),
         ("not json", "not valid JSON"),
+        # An item with no evidence is a hallucination by definition (docs/schema.md).
+        ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
+         '"blocker":null,"confidence":"high","evidence":[]}]}', "non-empty list"),
+        ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
+         '"blocker":null,"confidence":"high","evidence":[{"artifact_id":"msg_1"}]}]}',
+         "non-empty verbatim quote"),
+        ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
+         '"blocker":null,"confidence":"high","evidence":[{"span":"x"}]}]}',
+         "artifact_id: expected a non-empty string"),
     ]
     for raw, expected in cases:
         expect_raises(
@@ -693,9 +726,15 @@ class _FakeQuotaError(Exception):
 
 
 def _patch_rate_limit_detection():
-    """Treat _FakeQuotaError as a 429 for the duration of a test."""
-    saved = extraction._is_rate_limit
-    extraction._is_rate_limit = lambda e: getattr(e, "code", None) == 429
+    """Treat _FakeQuotaError as a 429 for the duration of a test.
+
+    Also drops the cached client so a patched genai.Client is actually used, and
+    guarantees a key is present since get_client() checks before dialling out.
+    """
+    os.environ.setdefault("GEMINI_API_KEY", "offline-test-key")
+    llm._client = None
+    saved = llm._is_rate_limit
+    llm._is_rate_limit = lambda e: getattr(e, "code", None) == 429
     return saved
 
 
@@ -713,28 +752,29 @@ def test_daily_quota_falls_through_to_next_model():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = extraction.generate_content(
+            result = llm.generate_content(
                 "hi", None, models=["model-a", "model-b", "model-c"]
             )
         assert result == "ok", result
         assert tried == ["model-a", "model-b", "model-c"], tried
         assert "trying next model" in buf.getvalue()
     finally:
-        extraction.genai.Client = saved_client
-        extraction._is_rate_limit = saved
+        llm.genai.Client = saved_client
+        llm._is_rate_limit = saved
+        llm._client = None
 
 
 def test_daily_quota_does_not_sleep():
     """A per-day cap won't clear in seconds — retrying the same model wastes the demo."""
     saved = _patch_rate_limit_detection()
     slept: list[float] = []
-    saved_sleep = extraction.time.sleep
-    extraction.time.sleep = lambda s: slept.append(s)
+    saved_sleep = llm.time.sleep
+    llm.time.sleep = lambda s: slept.append(s)
 
     calls: list[str] = []
 
@@ -746,29 +786,30 @@ def test_daily_quota_does_not_sleep():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
             expect_raises(
-                extraction.QuotaExhausted,
-                lambda: extraction.generate_content("hi", None, models=["a", "b"]),
+                llm.QuotaExhausted,
+                lambda: llm.generate_content("hi", None, models=["a", "b"]),
                 contains="All models rate-limited",
             )
         assert slept == [], f"should not sleep on a daily quota, slept {slept}"
         assert calls == ["a", "b"], calls
     finally:
-        extraction.genai.Client = saved_client
-        extraction.time.sleep = saved_sleep
-        extraction._is_rate_limit = saved
+        llm.genai.Client = saved_client
+        llm.time.sleep = saved_sleep
+        llm._is_rate_limit = saved
+        llm._client = None
 
 
 def test_per_minute_limit_is_retried_after_the_stated_delay():
     saved = _patch_rate_limit_detection()
     slept: list[float] = []
-    saved_sleep = extraction.time.sleep
-    extraction.time.sleep = lambda s: slept.append(s)
+    saved_sleep = llm.time.sleep
+    llm.time.sleep = lambda s: slept.append(s)
 
     attempts = {"n": 0}
 
@@ -782,18 +823,19 @@ def test_per_minute_limit_is_retried_after_the_stated_delay():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = extraction.generate_content("hi", None, models=["a"])
+            result = llm.generate_content("hi", None, models=["a"])
         assert result == "ok"
         assert slept and 13 <= slept[0] <= 14, f"should honour the stated delay, got {slept}"
     finally:
-        extraction.genai.Client = saved_client
-        extraction.time.sleep = saved_sleep
-        extraction._is_rate_limit = saved
+        llm.genai.Client = saved_client
+        llm.time.sleep = saved_sleep
+        llm._is_rate_limit = saved
+        llm._client = None
 
 
 def test_non_rate_limit_errors_are_not_retried():
@@ -807,17 +849,17 @@ def test_non_rate_limit_errors_are_not_retried():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         expect_raises(
             ValueError,
-            lambda: extraction.generate_content("hi", None, models=["a", "b"]),
+            lambda: llm.generate_content("hi", None, models=["a", "b"]),
             contains="bad request",
         )
         assert calls["n"] == 1, f"a non-429 must fail fast, got {calls['n']} attempts"
     finally:
-        extraction.genai.Client = saved_client
+        llm.genai.Client = saved_client
 
 
 # --- End to end --------------------------------------------------------------
@@ -830,7 +872,7 @@ def test_end_to_end_with_stubbed_models():
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = orchestrator.run_pipeline(dry_run=True, db_path=temp_db())
+            result = orchestrator.run_pipeline(source="fixtures", dry_run=True, db_path=temp_db())
 
         assert result["messages"] == 10, result["messages"]
         assert result["status_items"] == 3, result["status_items"]
@@ -858,9 +900,9 @@ def test_second_run_is_incremental():
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            orchestrator.run_pipeline(dry_run=True, db_path=db)
+            orchestrator.run_pipeline(source="fixtures", dry_run=True, db_path=db)
             first = len(monkey["extract_calls"])
-            result = orchestrator.run_pipeline(dry_run=True, db_path=db)
+            result = orchestrator.run_pipeline(source="fixtures", dry_run=True, db_path=db)
         assert len(monkey["extract_calls"]) == first, "second run should extract nothing new"
         assert result["extracted"] == 0, result
         assert result["topics"] == 3, "topics persist across runs"
@@ -875,7 +917,7 @@ def test_no_persist_skips_the_store():
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = orchestrator.run_pipeline(dry_run=True, persist=False)
+            result = orchestrator.run_pipeline(source="fixtures", dry_run=True, persist=False)
         assert result["topics"] == 3, result
         assert "persistence disabled" in buf.getvalue()
     finally:
@@ -894,7 +936,7 @@ def test_end_to_end_with_custom_fixture_file():
         buf = io.StringIO()
         with redirect_stdout(buf):
             result = orchestrator.run_pipeline(
-                fixtures_path=path, dry_run=True, db_path=temp_db()
+                source="fixtures", fixtures_path=path, dry_run=True, db_path=temp_db()
             )
         assert result["messages"] == 1, result["messages"]
     finally:
@@ -908,11 +950,174 @@ def test_cli_exits_cleanly_on_bad_fixture():
     sys.stderr = err
     try:
         with redirect_stdout(buf):
-            code = orchestrator.main(["--fixtures", "nope.json", "--dry-run"])
+            code = orchestrator.main(
+                ["--source", "fixtures", "--fixtures", "nope.json", "--dry-run"]
+            )
     finally:
         sys.stderr = saved_err
     assert code == 1, f"expected exit code 1, got {code}"
     assert "Pipeline failed" in err.getvalue(), err.getvalue()
+
+
+# --- Evidence spans -----------------------------------------------------------
+
+
+def test_evidence_span_must_appear_verbatim_in_the_source():
+    messages = [
+        {"source": "slack", "sender": "priya", "timestamp": "t",
+         "text": "pool's maxed again on bill-v2", "artifact_id": "slk_0041"},
+    ]
+    items = [
+        {"source": "slack", "topic": "Billing", "status": "blocked", "owner": None,
+         "blocker": None, "confidence": "high",
+         "evidence": [{"artifact_id": "slk_0041", "span": "pool's maxed again"}]},
+        # Paraphrased: says the same thing, quotes nothing. This is the hallucination.
+        {"source": "slack", "topic": "Capacity", "status": "at_risk", "owner": None,
+         "blocker": None, "confidence": "high",
+         "evidence": [{"artifact_id": "slk_0041",
+                       "span": "the connection pool is exhausted"}]},
+    ]
+    kept, dropped = extraction.check_evidence_spans(items, messages)
+    assert [k["topic"] for k in kept] == ["Billing"], kept
+    assert len(dropped) == 1, dropped
+    assert "span not found in slk_0041" in dropped[0], dropped[0]
+
+
+def test_evidence_citing_an_artifact_outside_the_batch_is_dropped():
+    messages = [{"source": "slack", "sender": "a", "timestamp": "t",
+                 "text": "restarting the workers", "artifact_id": "slk_0001"}]
+    items = [{"source": "slack", "topic": "X", "status": "unclear", "owner": None,
+              "blocker": None, "confidence": "low",
+              "evidence": [{"artifact_id": "slk_9999", "span": "restarting the workers"}]}]
+    kept, dropped = extraction.check_evidence_spans(items, messages)
+    assert kept == [], kept
+    assert "not in this batch" in dropped[0], dropped[0]
+
+
+def test_evidence_span_survives_whitespace_differences():
+    """Line wrapping in the source must not fail an otherwise exact quote."""
+    wrapped = "We are at risk on the" + chr(10) + "  warehouse cutover."
+    messages = [{"source": "email", "sender": "a", "timestamp": "t",
+                 "text": wrapped, "artifact_id": "eml_0001"}]
+    items = [{"source": "email", "topic": "Warehouse", "status": "at_risk", "owner": None,
+              "blocker": None, "confidence": "high",
+              "evidence": [{"artifact_id": "eml_0001",
+                            "span": "at risk on the warehouse cutover"}]}]
+    kept, dropped = extraction.check_evidence_spans(items, messages)
+    assert len(kept) == 1 and not dropped, (kept, dropped)
+
+
+def test_partial_evidence_keeps_the_item_and_reports_the_bad_span():
+    messages = [{"source": "slack", "sender": "a", "timestamp": "t",
+                 "text": "legal came back, retention change is approved",
+                 "artifact_id": "slk_0002"}]
+    items = [{"source": "slack", "topic": "Billing", "status": "on_track", "owner": None,
+              "blocker": None, "confidence": "high",
+              "evidence": [
+                  {"artifact_id": "slk_0002", "span": "retention change is approved"},
+                  {"artifact_id": "slk_0002", "span": "shipped to production"},
+              ]}]
+    kept, dropped = extraction.check_evidence_spans(items, messages)
+    assert len(kept) == 1, kept
+    assert len(kept[0]["evidence"]) == 1, kept[0]["evidence"]
+    assert "dropped evidence" in dropped[0], dropped[0]
+
+
+def test_merge_unions_evidence_from_both_readings():
+    items = [
+        {"source": "slack", "topic": "Billing migration", "status": "on_track",
+         "owner": None, "blocker": None, "confidence": "medium",
+         "evidence": [{"artifact_id": "a1", "span": "one"}]},
+        {"source": "slack", "topic": "billing Migration", "status": "blocked",
+         "owner": "Marcus", "blocker": "legal", "confidence": "high",
+         "evidence": [{"artifact_id": "a2", "span": "two"}]},
+    ]
+    merged = extraction.merge_items(items)
+    assert len(merged) == 1, merged
+    ids = sorted(e["artifact_id"] for e in merged[0]["evidence"])
+    assert ids == ["a1", "a2"], merged[0]["evidence"]
+
+
+# --- Corpus ingest ------------------------------------------------------------
+
+
+def test_corpus_messages_carry_artifact_ids():
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        messages = ingestion.ingest(source="corpus")
+    assert len(messages) > 100, len(messages)
+    for m in messages:
+        assert m["artifact_id"], m
+        assert m["source"] in extraction.SOURCES, m["source"]
+    ids = [m["artifact_id"] for m in messages]
+    assert len(ids) == len(set(ids)), "duplicate artifact_ids survived ingest"
+
+
+def test_corpus_ingest_reports_a_missing_directory_by_name():
+    expect_raises(
+        ingestion.IngestionError,
+        lambda: ingestion.ingest(source="corpus", corpus_dir="data/not-a-corpus"),
+        contains="does not exist",
+    )
+
+
+def test_evidence_is_persisted_and_returned_with_topics():
+    with store_mod.Store(temp_db()) as store:
+        store.add_messages([
+            {"source": "slack", "sender": "priya", "timestamp": "2026-05-14T20:55:22+00:00",
+             "text": "pool's maxed again on bill-v2", "artifact_id": "slk_0041"},
+        ])
+        store.upsert_items([
+            {"source": "slack", "topic": "Billing migration", "status": "blocked",
+             "owner": "Marcus", "blocker": "legal", "confidence": "high",
+             "evidence": [{"artifact_id": "slk_0041", "span": "pool's maxed again"}]},
+        ])
+        topics = store.topics()
+        assert len(topics) == 1, topics
+        # The artifact's own timestamp comes back, not the ingest time — date
+        # questions are answered from this.
+        assert topics[0]["evidence"] == [
+            {"artifact_id": "slk_0041", "span": "pool's maxed again",
+             "ts": "2026-05-14T20:55:22+00:00"}
+        ], topics[0]["evidence"]
+
+
+def test_evidence_without_a_stored_message_still_returns():
+    """A span whose artifact was never stored must not vanish — just no timestamp."""
+    with store_mod.Store(temp_db()) as store:
+        store.upsert_items([
+            {"source": "slack", "topic": "Orphan", "status": "unclear", "owner": None,
+             "blocker": None, "confidence": "low",
+             "evidence": [{"artifact_id": "slk_9001", "span": "something happened"}]},
+        ])
+        evidence = store.topics()[0]["evidence"]
+        assert evidence == [
+            {"artifact_id": "slk_9001", "span": "something happened", "ts": None}
+        ], evidence
+
+
+def test_agent_parses_grouped_citations():
+    """The model writes [a, b] when one claim rests on several artifacts."""
+    answer = agent.Answer(
+        text="Auth revamp is on track [slk_0163, slk_0185; slk_0187].",
+        topics=[{"topic": "Auth", "evidence": [
+            {"artifact_id": "slk_0163", "span": "x"},
+            {"artifact_id": "slk_0185", "span": "y"},
+            {"artifact_id": "slk_0187", "span": "z"},
+        ]}],
+    )
+    assert answer.cited_ids == ["slk_0163", "slk_0185", "slk_0187"], answer.cited_ids
+    assert answer.uncited_claims == [], answer.uncited_claims
+
+
+def test_agent_flags_a_citation_it_was_never_given():
+    answer = agent.Answer(
+        text="Billing is blocked [slk_0041] and the cutover slipped [eml_9999].",
+        topics=[{"topic": "Billing", "evidence": [
+            {"artifact_id": "slk_0041", "span": "pool's maxed again"}]}],
+    )
+    assert answer.cited_ids == ["slk_0041", "eml_9999"], answer.cited_ids
+    assert answer.uncited_claims == ["eml_9999"], answer.uncited_claims
 
 
 # --- Live smoke test (only with a real key) ----------------------------------
@@ -920,7 +1125,7 @@ def test_cli_exits_cleanly_on_bad_fixture():
 
 def live_smoke_test() -> None:
     """Real Gemini calls, real fixtures, console output."""
-    result = orchestrator.run_pipeline(dry_run=True, verbose=True)
+    result = orchestrator.run_pipeline(source="fixtures", dry_run=True, verbose=True)
     assert result["messages"] == 10, result["messages"]
     assert result["status_items"] >= 4, (
         f"expected at least 4 real projects, got {result['status_items']}"
