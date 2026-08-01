@@ -68,7 +68,15 @@ python orchestrator.py --source slack --channel C0123456789
 ```
 
 Any module can also be run on its own — `python ingestion.py`, `python extraction.py`,
-`python synthesis.py`, `python output.py` — which is the fastest way to debug one stage.
+`python synthesis.py`, `python output.py`, `python agent4.py` — which is the fastest way to debug one stage.
+
+## Agent 4: retrieval + extraction + cross-reference
+
+```bash
+python agent4.py --question "what's currently blocked?" --corpus data --top-k 50
+```
+
+This runs the bootstrap retrieval stack, extracts status items from candidates, dedupes overlapping subjects, and surfaces conflict records if two items disagree.
 
 ## Free-tier quotas — read this before demoing
 
