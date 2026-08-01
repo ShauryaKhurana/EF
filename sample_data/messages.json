@@ -1,0 +1,62 @@
+[
+  {
+    "source": "slack",
+    "sender": "priya",
+    "timestamp": "2026-08-01T09:14:00Z",
+    "text": "Billing migration update: we're still stuck on the Stripe webhook replay. Nothing moves until legal signs off on the data retention change — Marcus owns that and said he'd chase it today. Realistically we slip past Friday."
+  },
+  {
+    "source": "email",
+    "sender": "dan@company.com",
+    "timestamp": "2026-08-01T09:40:00Z",
+    "text": "Subject: Mobile app v3 — weekly\n\nAll green. Onboarding rewrite merged Tuesday, QA signed off this morning, and we're on schedule to ship to TestFlight next Wednesday. No blockers. I'll keep owning the release."
+  },
+  {
+    "source": "slack",
+    "sender": "aisha",
+    "timestamp": "2026-08-01T10:02:00Z",
+    "text": "anyone know if the good coffee machine on 3 is fixed yet ☕️ asking for a friend"
+  },
+  {
+    "source": "slack",
+    "sender": "tomas",
+    "timestamp": "2026-08-01T10:26:00Z",
+    "text": "re: the search reindex — kind of a mess right now, still digging into it. will know more after I look at the logs"
+  },
+  {
+    "source": "slack",
+    "sender": "marcus",
+    "timestamp": "2026-08-01T11:05:00Z",
+    "text": "Following up on the billing migration — legal came back, retention change is approved. Unblocking Priya now, webhook replay work restarts this afternoon."
+  },
+  {
+    "source": "email",
+    "sender": "sofia@company.com",
+    "timestamp": "2026-08-01T11:31:00Z",
+    "text": "Subject: Data warehouse cutover — heads up\n\nWe're at risk on the warehouse cutover. Snowflake vendor pushed our provisioning window by two weeks, which eats the entire buffer we had before the Q3 close. Not blocked yet — we can still hit the date if provisioning lands by the 14th, but it's tight. I own this."
+  },
+  {
+    "source": "slack",
+    "sender": "jenna",
+    "timestamp": "2026-08-01T11:48:00Z",
+    "text": "huge congrats to the design team on the rebrand launch yesterday, the new site looks incredible 🎉🎉"
+  },
+  {
+    "source": "slack",
+    "sender": "ken",
+    "timestamp": "2026-08-01T12:15:00Z",
+    "text": "Customer onboarding revamp is on track. Finished the self-serve flow, pilot with 3 accounts starts Monday. No blockers, I'm driving it."
+  },
+  {
+    "source": "email",
+    "sender": "legal@company.com",
+    "timestamp": "2026-08-01T13:02:00Z",
+    "text": "Subject: SOC2 review — status\n\nThe SOC2 readiness review is blocked pending the external auditor's response on scope. We've been waiting nine days. Until they confirm scope we can't start evidence collection, and the certification date is at risk."
+  },
+  {
+    "source": "slack",
+    "sender": "raj",
+    "timestamp": "2026-08-01T13:20:00Z",
+    "text": "lunch order going in, last call for anyone who wants the thai place 🍜"
+  }
+]
