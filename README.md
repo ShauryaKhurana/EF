@@ -1,6 +1,6 @@
-# COO Agent
+# COOless
 
-COO Agent ingests Slack and email messages, extracts structured status updates using an LLM, accumulates them into a persistent company-context store, and answers questions about what's going on — plus posts a daily executive briefing to Slack.
+COOless ingests Slack and email messages, extracts structured status updates using an LLM, accumulates them into a persistent company-context store, and answers questions about what's going on — plus posts a daily executive briefing to Slack.
 
 Two surfaces over one store:
 
@@ -182,7 +182,7 @@ constrained by a JSON schema server-side *and* re-validated strictly in `extract
 - `store.py` — SQLite company context: messages, topics, observations, embeddings, semantic search.
 - `agent.py` — retrieval-grounded Q&A over the store.
 - `chat.py` — chat REPL for talking to the agent.
-- `synthesis.py` — turn status items into a Slack-formatted COO briefing, ranked and capped.
+- `synthesis.py` — turn status items into a Slack-formatted executive briefing, ranked and capped.
 - `output.py` — post to Slack, or print to the console when credentials are absent.
 - `orchestrator.py` — CLI that chains the pipeline end to end.
 - `demo.py` — staged walkthrough for presenting the pipeline.

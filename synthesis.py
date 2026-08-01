@@ -107,12 +107,12 @@ def fallback_briefing(status_items: list[dict]) -> str:
     """Deterministic briefing, no LLM. Used when there's nothing to synthesize."""
     if not status_items:
         return (
-            f"*COO Briefing — {date.today().isoformat()}*\n\n"
+            f"*COOless Briefing — {date.today().isoformat()}*\n\n"
             "No status updates found in today's messages. "
             "Either nothing was reported, or the sources had no project content."
         )
 
-    lines = [f"*COO Briefing — {date.today().isoformat()}*", ""]
+    lines = [f"*COOless Briefing — {date.today().isoformat()}*", ""]
     for status, items in _group_by_status(status_items).items():
         lines.append(f"*{STATUS_LABELS.get(status, status)}*")
         for item in items:

@@ -1,4 +1,4 @@
-"""The COO agent: answers questions about company status from the stored context.
+"""The COOless agent: answers questions about company status from the stored context.
 
 Retrieval-grounded — the model only sees topics pulled from the store, and is
 instructed to say when it doesn't know rather than fill the gap. Every answer

@@ -1,4 +1,4 @@
-"""COO Agent pipeline: ingest -> extract -> synthesize -> deliver.
+"""COOless pipeline: ingest -> extract -> synthesize -> deliver.
 
 Examples:
     python orchestrator.py --dry-run
@@ -97,7 +97,7 @@ def run_pipeline(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run the COO Agent briefing pipeline.")
+    parser = argparse.ArgumentParser(description="Run the COOless briefing pipeline.")
     parser.add_argument(
         "--source",
         choices=("corpus", "fixtures", "gmail", "slack"),

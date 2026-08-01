@@ -1,4 +1,4 @@
-"""COO Oracle.
+"""COOless.
 
 Force UTF-8 on stdout/stderr with replacement rather than failure. The corpus and any
 text a judge pastes in will contain emoji, smart quotes and non-Latin characters; the

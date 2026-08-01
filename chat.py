@@ -1,4 +1,4 @@
-"""Chat with the COO agent.
+"""Chat with the COOless agent.
 
     python chat.py                      # interactive
     python chat.py "what's blocked?"    # one-shot
@@ -35,7 +35,7 @@ BLUE = "\033[34m" if COLOR else ""
 
 STATUS_COLOR = {"blocked": RED, "at_risk": YELLOW, "unclear": BLUE, "on_track": GREEN}
 
-BANNER = f"""{BOLD}COO Agent{RESET} {DIM}— ask me what's going on{RESET}
+BANNER = f"""{BOLD}COOless{RESET} {DIM}— ask me what's going on{RESET}
 {DIM}/topics  /topic <name>  /stats  /reindex  /clear  /help  /quit{RESET}"""
 
 
@@ -124,7 +124,7 @@ def handle_command(line: str, store: Store, history: list[dict]) -> bool:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Chat with the COO agent.")
+    parser = argparse.ArgumentParser(description="Chat with the COOless agent.")
     parser.add_argument("question", nargs="*", help="Ask one question and exit.")
     parser.add_argument("--db", default=None, help="Path to the store database.")
     args = parser.parse_args(argv)
@@ -166,7 +166,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"  {RED}error:{RESET} {type(e).__name__}: {e}\n")
                 continue
 
-            print(f"\n{BOLD}coo ▸{RESET} {answer.text}\n")
+            print(f"\n{BOLD}cooless ▸{RESET} {answer.text}\n")
             if answer.sources:
                 print(f"{DIM}      sources: {', '.join(answer.sources[:5])}{RESET}\n")
 

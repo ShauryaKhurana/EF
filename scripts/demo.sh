@@ -6,7 +6,7 @@
 set -euo pipefail
 QUESTION="${1:?usage: scripts/demo.sh \"<question>\" [corpus_dir]}"
 CORPUS="${2:-data/corpus}"
-echo "== COO Oracle =="
+echo "== COOless =="
 echo "corpus:   $CORPUS"
 echo "question: $QUESTION"
 # Use the project venv when present (system python3 lacks the deps).

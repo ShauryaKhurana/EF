@@ -1,4 +1,4 @@
-"""Staged, presentable walkthrough of the COO Agent pipeline.
+"""Staged, presentable walkthrough of the COOless pipeline.
 
     python demo.py                     # live run, briefing printed to the console
     python demo.py --channel '#ops'    # also post the briefing to Slack
@@ -83,12 +83,12 @@ def show_items(items: list[dict]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Run a staged COO Agent demo.")
+    parser = argparse.ArgumentParser(description="Run a staged COOless demo.")
     parser.add_argument("--channel", default=None, help="Slack channel to post the briefing to.")
     parser.add_argument("--slow", action="store_true", help="Pause between stages.")
     args = parser.parse_args(argv)
 
-    print(f"\n{BOLD}COO AGENT{RESET} {DIM}— Slack + email in, executive briefing out{RESET}")
+    print(f"\n{BOLD}COOLESS{RESET} {DIM}— Slack + email in, executive briefing out{RESET}")
     rule("═")
 
     try:

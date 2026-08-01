@@ -1,4 +1,4 @@
-# Synthetic Corpus Design — "Oracle" COO Agent
+# Synthetic Corpus Design — COOless
 ### Fire Yourselves Hackathon · Dataset workstream (Brody) · v1.0
 
 ---

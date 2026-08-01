@@ -1,4 +1,4 @@
-# Build Plan — COO Oracle
+# Build Plan — COOless
 
 Cross-reference of the code as it stands against `docs/DATASET_DESIGN.md` and
 `CLAUDE.md`, turned into sequenced agent tasks with strict file ownership.

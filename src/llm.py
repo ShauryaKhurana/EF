@@ -405,13 +405,13 @@ def _selftest(prompt: str) -> int:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(description="Gemini client for the COO Oracle.")
+    parser = argparse.ArgumentParser(description="Gemini client for COOless.")
     parser.add_argument(
         "--selftest", action="store_true", help="make a real Gemini call and print usage"
     )
     parser.add_argument(
         "--prompt",
-        default="Reply with exactly: COO Oracle LLM client online.",
+        default="Reply with exactly: COOless LLM client online.",
         help="prompt to send with --selftest",
     )
     args = parser.parse_args(argv)

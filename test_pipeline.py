@@ -1,4 +1,4 @@
-"""End-to-end and unit tests for the COO Agent pipeline.
+"""End-to-end and unit tests for the COOless pipeline.
 
 Run:  venv/bin/python test_pipeline.py
 
@@ -135,7 +135,7 @@ FAKE_ITEMS = {
 }
 
 FAKE_BRIEFING = (
-    "*COO Briefing*\n\n"
+    "*COOless Briefing*\n\n"
     "*Blocked*\n• *Billing migration* — legal sign-off pending (Marcus)\n\n"
     "*On track*\n• *Mobile app v3* (Dan)\n\n"
     "*Suggested focus*\n• Chase legal on the retention change."
@@ -886,7 +886,7 @@ def test_end_to_end_with_stubbed_models():
         assert len(monkey["synth_calls"]) == 1
         assert "Billing migration" in monkey["synth_calls"][0]
         # The briefing must reach stdout.
-        assert "COO BRIEFING" in buf.getvalue()
+        assert "COOLESS BRIEFING" in buf.getvalue()
     finally:
         restore_models(originals)
 

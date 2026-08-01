@@ -39,7 +39,7 @@ def post_to_slack(channel: str, text: str) -> str:
 def print_to_console(briefing: str) -> str:
     """Render the briefing to stdout. Always available, never fails."""
     rule = "=" * 72
-    print(f"\n{rule}\nCOO BRIEFING\n{rule}\n\n{briefing}\n\n{rule}\n")
+    print(f"\n{rule}\nCOOLESS BRIEFING\n{rule}\n\n{briefing}\n\n{rule}\n")
     return "console"
 
 
@@ -74,4 +74,4 @@ def deliver(briefing: str, channel: str | None = None, dry_run: bool = False) ->
 
 
 if __name__ == "__main__":
-    deliver("*COO Briefing — sample*\n\n• *Billing migration* — blocked on legal (Marcus)", dry_run=True)
+    deliver("*COOless Briefing — sample*\n\n• *Billing migration* — blocked on legal (Marcus)", dry_run=True)

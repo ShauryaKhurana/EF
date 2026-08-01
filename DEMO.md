@@ -1,4 +1,4 @@
-# Demo runbook — COO Oracle
+# Demo runbook — COOless
 
 One command, three beats, ~135 seconds. Everything below was run for real before
 this file was written; expected outputs are pasted from actual runs.
@@ -35,8 +35,8 @@ causal chain no single channel contains:
 
 **Say:** the root cause lives in a Slack reply that shares *zero words* with the
 question — "pool's maxed again on bill-v2. who merged 4402". Keyword search can't
-get there; grep the question's words yourself and you find 1 of 3 sources. The
-oracle got there through the ticket ID.
+get there; grep the question's words yourself and you find 1 of 3 sources.
+COOless got there through the ticket ID.
 
 ## Beat 2 — the ablation (~20s, this is the pitch)
 
@@ -58,7 +58,7 @@ Retrieval numbers, same question, one channel:
 **Say:** this is a per-inbox assistant — Sarah's email bot. It knows there was an
 outage. It cannot know the root cause or the financial hit, because those facts
 were never in any inbox. That's not a model gap; the information genuinely lives
-in four places. This is why it's an oracle and not an email plugin.
+in four places. This is why it's COOless and not an email plugin.
 
 ## Beat 3 — the trap question (~20s)
 
