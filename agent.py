@@ -5,17 +5,13 @@ instructed to say when it doesn't know rather than fill the gap. Every answer
 carries the topics it drew on, so a claim can be traced back.
 """
 
-import os
+import re
 from dataclasses import dataclass, field
 
-from dotenv import load_dotenv
-from google import genai
 from google.genai import types
 
-from extraction import generate_content
+from src.llm import generate_content
 from store import STATUS_RANK, Store
-
-load_dotenv()
 
 TOP_K = 8
 RECENT_K = 5
@@ -40,7 +36,16 @@ what the person would do next.
 - Be concise and factual. No preamble, no sign-off, no offers of further help.
 - When you reference a topic, use its exact name so the person can look it up.
 - If asked about something time-sensitive, note when the topic was last updated \
-— your data may be stale."""
+— your data may be stale.
+
+Citations:
+- Topics carry evidence: verbatim quotes with the artifact id they came from, like \
+[slk_0041]. Every factual claim you make must end with the artifact id(s) it rests on, \
+in square brackets.
+- Cite only ids present in the CONTEXT. Never invent an id, never cite a topic name as \
+though it were an id.
+- If a topic you want to use has no evidence listed, you may still report it, but say \
+"no source quote stored" instead of attaching a citation."""
 
 
 @dataclass
@@ -51,6 +56,36 @@ class Answer:
     @property
     def sources(self) -> list[str]:
         return [t["topic"] for t in self.topics]
+
+    @property
+    def cited_ids(self) -> list[str]:
+        """Artifact ids the answer text actually cites, in order of first appearance."""
+        seen: list[str] = []
+        for match in re.findall(r"\[([A-Za-z0-9_\-]+)\]", self.text):
+            if match not in seen:
+                seen.append(match)
+        return seen
+
+    @property
+    def available_ids(self) -> list[str]:
+        """Every artifact id the retrieved context offered."""
+        ids: list[str] = []
+        for topic in self.topics:
+            for entry in topic.get("evidence") or []:
+                artifact_id = entry.get("artifact_id")
+                if artifact_id and artifact_id not in ids:
+                    ids.append(artifact_id)
+        return ids
+
+    @property
+    def uncited_claims(self) -> list[str]:
+        """Ids cited in the text that the context never offered — fabricated citations.
+
+        Checked in code rather than trusted: a made-up citation is worse than none,
+        because it looks verified.
+        """
+        available = set(self.available_ids)
+        return [i for i in self.cited_ids if i not in available]
 
 
 def _render_context(topics: list[dict]) -> str:
@@ -69,6 +104,14 @@ def _render_context(topics: list[dict]) -> str:
         parts.append(f"  confidence: {topic['confidence']}")
         parts.append(f"  mentions: {topic.get('mentions', 1)}")
         parts.append(f"  last updated: {topic['last_seen']}")
+        evidence = topic.get("evidence") or []
+        if evidence:
+            parts.append("  evidence:")
+            for entry in evidence:
+                span = " ".join(str(entry.get("span", "")).split())
+                parts.append(f"    [{entry.get('artifact_id')}] \"{span}\"")
+        else:
+            parts.append("  evidence: none stored")
         lines.append("\n".join(parts))
     return "\n\n".join(lines)
 
@@ -147,4 +190,11 @@ if __name__ == "__main__":
         answer = ask(question, store)
         print(f"\n{answer.text}\n")
         if answer.sources:
-            print(f"  sources: {', '.join(answer.sources)}")
+            print(f"  topics: {', '.join(answer.sources)}")
+        if answer.cited_ids:
+            print(f"  cited artifacts: {', '.join(answer.cited_ids)}")
+        if answer.uncited_claims:
+            print(
+                f"  WARNING fabricated citation(s) not in the retrieved context: "
+                f"{', '.join(answer.uncited_claims)}"
+            )

@@ -72,6 +72,17 @@ CREATE TABLE IF NOT EXISTS observations (
     seen_at    TEXT NOT NULL
 );
 
+-- Verbatim quotes backing each topic, keyed to the artifact they came from.
+-- This is what lets an answer cite a source instead of asserting one.
+CREATE TABLE IF NOT EXISTS topic_evidence (
+    topic_key   TEXT NOT NULL REFERENCES topics(topic_key),
+    artifact_id TEXT NOT NULL,
+    span        TEXT NOT NULL,
+    seen_at     TEXT NOT NULL,
+    PRIMARY KEY (topic_key, artifact_id, span)
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_topic ON topic_evidence(topic_key);
 CREATE INDEX IF NOT EXISTS idx_topics_status ON topics(status);
 CREATE INDEX IF NOT EXISTS idx_topics_last_seen ON topics(last_seen);
 CREATE INDEX IF NOT EXISTS idx_obs_topic ON observations(topic_key);
@@ -101,7 +112,15 @@ def topic_key(topic: str) -> str:
 
 
 def message_id(message: dict) -> str:
-    """Stable content hash, so re-ingesting the same message is a no-op."""
+    """Stable id, so re-ingesting the same message is a no-op.
+
+    A corpus artifact already has a unique, citable id — use it, so a stored message
+    can be looked up by the artifact_id an evidence span points at. Fixture messages
+    have no such id, so they fall back to a content hash.
+    """
+    artifact_id = message.get("artifact_id")
+    if isinstance(artifact_id, str) and artifact_id.strip():
+        return artifact_id.strip()
     raw = f"{message.get('source')}|{message.get('sender')}|{message.get('timestamp')}|{message.get('text')}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -189,6 +208,23 @@ class Store:
                  item["confidence"], item["source"], seen_at),
             )
 
+            # Evidence accumulates across runs and is never overwritten by a newer
+            # reading — an older quote is still a real thing somebody wrote.
+            for entry in item.get("evidence") or []:
+                artifact_id = (entry or {}).get("artifact_id")
+                span = (entry or {}).get("span")
+                if not artifact_id or not span:
+                    print(
+                        f"[store] skipped malformed evidence on topic {item['topic']!r}: "
+                        f"{entry!r}"
+                    )
+                    continue
+                self.conn.execute(
+                    "INSERT OR IGNORE INTO topic_evidence (topic_key, artifact_id, span,"
+                    " seen_at) VALUES (?, ?, ?, ?)",
+                    (key, artifact_id, span, seen_at),
+                )
+
             if row is None:
                 self.conn.execute(
                     "INSERT INTO topics (topic_key, topic, status, owner, blocker, confidence,"
@@ -224,6 +260,21 @@ class Store:
         item.pop("embedded_for", None)
         return item
 
+    def evidence_for(self, key: str, limit: int = 6) -> list[dict]:
+        """Verbatim quotes backing a topic, newest first."""
+        return [
+            {"artifact_id": row["artifact_id"], "span": row["span"]}
+            for row in self.conn.execute(
+                "SELECT artifact_id, span FROM topic_evidence WHERE topic_key = ?"
+                " ORDER BY seen_at DESC, artifact_id LIMIT ?",
+                (key, limit),
+            )
+        ]
+
+    def _with_evidence(self, row: dict) -> dict:
+        row["evidence"] = self.evidence_for(row["topic_key"])
+        return row
+
     def topics(self, status: str | None = None, limit: int | None = None) -> list[dict]:
         sql = "SELECT * FROM topics"
         params: list[Any] = []
@@ -234,7 +285,7 @@ class Store:
         if limit:
             sql += " LIMIT ?"
             params.append(limit)
-        return [self._clean(row) for row in self.conn.execute(sql, params)]
+        return [self._with_evidence(self._clean(row)) for row in self.conn.execute(sql, params)]
 
     def status_items(self, limit: int | None = None) -> list[dict]:
         """Topics projected back into the StatusItem shape the briefing expects."""
@@ -333,7 +384,7 @@ class Store:
 
         indexed = [r for r in rows if r["embedding"] is not None]
         if not indexed:
-            return self._keyword_search(question, rows, k)
+            return [self._with_evidence(r) for r in self._keyword_search(question, rows, k)]
 
         query = np.asarray(self._embed([question], task_type="RETRIEVAL_QUERY")[0], dtype=np.float32)
         matrix = np.vstack([_unpack(r["embedding"]) for r in indexed])
@@ -348,7 +399,7 @@ class Store:
         for i in order:
             row = self._clean(indexed[int(i)])
             row["score"] = float(scores[int(i)])
-            results.append(row)
+            results.append(self._with_evidence(row))
         return results
 
     @staticmethod

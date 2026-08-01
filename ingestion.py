@@ -286,19 +286,61 @@ def fetch_gmail_messages(query: str = "newer_than:1d", limit: int = 50) -> list[
     )
 
 
+DEFAULT_CORPUS = Path(__file__).parent / "data" / "corpus"
+
+
+def load_corpus_messages(corpus_dir: str | Path = DEFAULT_CORPUS) -> list[dict]:
+    """Load data/corpus/*.jsonl and normalize it for extraction.
+
+    Unlike the fixture path, this keeps the fields that make a claim traceable:
+    artifact_id (what evidence spans cite), container_id, parent_id and recipients.
+    Parse failures are reported by name and the run continues — see src/ingest.py.
+    """
+    from src.ingest import load_corpus, print_ingest_report  # local: keeps src optional
+
+    try:
+        artifacts, failures, stats = load_corpus(str(corpus_dir))
+    except (FileNotFoundError, NotADirectoryError) as e:
+        raise IngestionError(str(e)) from e
+
+    print_ingest_report(artifacts, failures, stats)
+
+    messages = []
+    for artifact in artifacts:
+        if not artifact.text.strip():
+            continue  # nothing to extract from; already counted as a warning above
+        messages.append(
+            {
+                "source": artifact.source,
+                "sender": artifact.sender_id or "unknown",
+                "timestamp": artifact.ts.isoformat() if artifact.ts else "",
+                "text": artifact.text,
+                "artifact_id": artifact.artifact_id,
+                "container_id": artifact.container_id,
+                "parent_id": artifact.parent_id,
+                "recipients": artifact.recipients,
+            }
+        )
+    return messages
+
+
 def ingest(
     source: str = "fixtures",
     fixtures_path: str | Path = DEFAULT_FIXTURES,
     channel: str | None = None,
     limit: int = 50,
+    corpus_dir: str | Path = DEFAULT_CORPUS,
 ) -> list[dict]:
     """Return normalized messages from the requested source.
 
     source:
+      corpus   — data/corpus/*.jsonl, carrying artifact_id for citation
       fixtures — JSON file; auto-detects normalized records vs raw Gmail messages
       gmail    — JSON dump of raw Gmail API messages (defaults to the bundled sample)
       slack    — live Slack Web API pull (requires SLACK_BOT_TOKEN + channel)
     """
+    if source == "corpus":
+        return load_corpus_messages(corpus_dir)
     if source == "fixtures":
         return load_fixture_messages(fixtures_path)
     if source == "gmail":
@@ -312,7 +354,7 @@ def ingest(
             raise IngestionError("source='slack' requires a channel (e.g. 'C0123456789').")
         return fetch_slack_messages(channel, limit=limit)
     raise IngestionError(
-        f"unknown source {source!r} (expected 'fixtures', 'gmail', or 'slack')"
+        f"unknown source {source!r} (expected 'corpus', 'fixtures', 'gmail', or 'slack')"
     )
 
 
