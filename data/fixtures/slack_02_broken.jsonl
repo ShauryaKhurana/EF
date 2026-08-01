@@ -1,0 +1,13 @@
+{"artifact_id": "slk_00b101", "source": "slack", "container_id": "#fin-ops", "parent_id": null, "sender_id": "EMP_015", "recipients": [], "ts": "2026-05-14T13:55:22-07:00", "text": "we deferred the aegis funding line this morning, it's not in the Q3 plan
+{"artifact_id": "slk_00b102", "source": "slack", "container_id": "#fin-ops", "parent_id": null, "sender_id": "EMP_015", "recipients": [], "ts": null, "text": "confirming the deferral with legal", "meta": {}, "raw": {}}
+{"artifact_id": "slk_00b103", "source": "slack", "container_id": "#cs-escalations", "parent_id": null, "sender_id": "EMP_207", "recipients": [], "ts": "2026-05-14T17:02:00-07:00", "meta": {}, "raw": {}}
+{"artifact_id": "slk_00b104", "source": "slack", "container_id": "#cs-escalations", "parent_id": null, "sender_id": 141, "recipients": [], "ts": "2026-05-14T17:09:41-07:00", "text": "who owns the pool ceiling change", "meta": {}, "raw": {}}
+{"artifact_id": "slk_00b105", "source": "slack", "container_id": "#eng-aegis", "parent_id": null, "sender_id": "EMP_082", "recipients": [], "ts": "1747250122.000200", "text": "restarting the workers", "meta": {}, "raw": {}}
+{"artifact_id": "slk_00b106", "source": "slack", "container_id": "#eng-aegis", "parent_id": null, "sender_id": "EMP_082", "recipients": [], "ts": "2026-05-14T21:30:00Z", "text": "workers back up, 503s gone for now", "meta": {}, "raw": {}}
+{"artifact_id": "slk_00b107", "source": "slack", "container_id": "#eng-aegis", "parent_id": null, "sender_id": "EMP_141", "recipients": [], "ts": "2026-05-14 22:05:00", "text": "leaving the ceiling where it is until we understand the leak", "meta": {}, "raw": {}}
+
+{"artifact_id": "slk_00a41f", "source": "slack", "container_id": "#eng-aegis", "parent_id": null, "sender_id": "EMP_082", "recipients": [], "ts": "2026-05-14T13:55:22-07:00", "text": "duplicate of a record already loaded from slack_01_clean.jsonl", "meta": {}, "raw": {}}
+["this line is a JSON array, not an object"]
+{"source": "slack", "container_id": "#eng-aegis", "parent_id": null, "sender_id": "EMP_141", "recipients": [], "ts": "2026-05-14T22:40:00-07:00", "text": "no artifact_id on this one so nothing could ever cite it", "meta": {}, "raw": {}}
+{"artifact_id": "slk_00b108", "container_id": "#eng-aegis", "parent_id": null, "sender_id": "EMP_141", "recipients": "EMP_015", "ts": "yesterday", "text": "pinged finance about the funding line", "meta": "escalation", "raw": {}}
+{"artifact_id": "cnf_0007", "source": "confluence", "container_id": "docs/aegis/runbook", "parent_id": null, "sender_id": "EMP_141", "recipients": null, "ts": 1747300000000, "text": "Runbook: billing-v2 connection pool", "meta": {}, "raw": {}}

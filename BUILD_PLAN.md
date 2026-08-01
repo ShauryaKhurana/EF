@@ -114,9 +114,10 @@ array is the anti-hallucination guarantee and the thing you point at on stage.
    ```
    It currently takes only an input path, which cannot express a question. This
    is the last time it changes.
-5. `requirements.txt`: drop `google-generativeai`, `google-api-python-client`,
-   `google-auth-oauthlib`. Anthropic only — two providers is dead weight and the
-   Gemini branches in `extraction.py`/`synthesis.py` are dead code.
+5. `requirements.txt`: drop `anthropic`, `google-api-python-client`,
+   `google-auth-oauthlib`. Gemini only — two providers is dead weight, the
+   Gemini API has a usable free tier (no card required for a hackathon), and
+   the Anthropic branches in `extraction.py`/`synthesis.py` are dead code.
 
 ---
 
@@ -125,7 +126,7 @@ array is the anti-hallucination guarantee and the thing you point at on stage.
 ```
 src/
   schema.py      Artifact, StatusItem, Conflict, Answer + validators
-  llm.py         one Anthropic client: retries, JSON coercion, cost log
+  llm.py         one Gemini client: retries, JSON coercion, cost log
   ingest.py      corpus/*.jsonl → Artifact, per-record fail-loud
   index.py       alias table + entity index + BM25 + thread/time indexes
   retrieve.py    multi-hop entity traversal, returns candidates + hop paths
@@ -182,10 +183,13 @@ no `_prov` field anywhere in `data/corpus/`; every `gold_artifacts` id resolves;
   formatted — timestamps especially (epoch floats, `Z` vs offset, naive strings
   all appear in real Slack/Gmail exports). Normalize to tz-aware UTC; an
   unparseable ts is a surfaced warning on the record, not a dropped record.
-- `llm.py`: real Anthropic client. Extraction on `claude-haiku-4-5-20251001`,
-  answering on `claude-sonnet-5` (latency matters more than depth on stage).
-  Retry on 429/5xx with backoff, hard timeout, running cost counter printed at
-  end of run. Load the `claude-api` skill before writing this file.
+- `llm.py`: real Gemini client (`google-generativeai`), on the free tier.
+  Extraction and answering both on `gemini-2.5-flash` (latency matters more
+  than depth on stage, and the free tier's per-minute request cap is the real
+  constraint — one model keeps the budget simple). Retry on 429/5xx with
+  backoff that respects the free-tier RPM limit, hard timeout, running cost
+  counter printed at end of run (should print `$0.00`, since this is the free
+  tier — treat a non-zero cost as a bug, not a feature).
 - `ingest.py`: read `data/corpus/*.jsonl`. Per-record try/except. Returns
   `(artifacts, failures)` where each failure is `{line_no, file, reason, raw}`.
   **Failures are printed in the demo output** — "3 records unparseable: …"
