@@ -1,0 +1,402 @@
+{
+  "generated_by": "synthetic/bootstrap/generate.py",
+  "seed": 20260514,
+  "employees": [
+    {
+      "employee_id": "EMP_001",
+      "name": "Sarah Kim",
+      "role": "VP Engineering",
+      "team": "eng",
+      "manager_id": null,
+      "timezone": "America/Los_Angeles",
+      "aliases": [
+        "sarah",
+        "@sarah",
+        "sarah.kim@company.com",
+        "skim"
+      ],
+      "email": "sarah.kim@company.com",
+      "slack_handle": "@sarah"
+    },
+    {
+      "employee_id": "EMP_002",
+      "name": "Priya Raman",
+      "role": "Customer Success Lead",
+      "team": "cs",
+      "manager_id": "EMP_001",
+      "timezone": "America/New_York",
+      "aliases": [
+        "priya",
+        "pri",
+        "@pr",
+        "priya.raman@company.com"
+      ],
+      "email": "priya.raman@company.com",
+      "slack_handle": "@priya"
+    },
+    {
+      "employee_id": "EMP_003",
+      "name": "Alex Torres",
+      "role": "SRE (on-call)",
+      "team": "sre",
+      "manager_id": "EMP_004",
+      "timezone": "America/Los_Angeles",
+      "aliases": [
+        "alex",
+        "@alex",
+        "alex.torres@company.com",
+        "atorres"
+      ],
+      "email": "alex.torres@company.com",
+      "slack_handle": "@alex"
+    },
+    {
+      "employee_id": "EMP_004",
+      "name": "Ken Nakamura",
+      "role": "Engineering Manager",
+      "team": "eng",
+      "manager_id": "EMP_001",
+      "timezone": "America/Los_Angeles",
+      "aliases": [
+        "ken",
+        "@ken",
+        "ken.nakamura@company.com"
+      ],
+      "email": "ken.nakamura@company.com",
+      "slack_handle": "@ken"
+    },
+    {
+      "employee_id": "EMP_005",
+      "name": "Sofia Marin",
+      "role": "Finance Director",
+      "team": "finance",
+      "manager_id": null,
+      "timezone": "America/New_York",
+      "aliases": [
+        "sofia",
+        "@sofia",
+        "sofia.marin@company.com"
+      ],
+      "email": "sofia.marin@company.com",
+      "slack_handle": "@sofia"
+    },
+    {
+      "employee_id": "EMP_006",
+      "name": "Tomas Reyes",
+      "role": "Engineer",
+      "team": "eng",
+      "manager_id": "EMP_004",
+      "timezone": "Europe/Lisbon",
+      "aliases": [
+        "tomas",
+        "@tomas",
+        "tomas.reyes@company.com"
+      ],
+      "email": "tomas.reyes@company.com",
+      "slack_handle": "@tomas"
+    },
+    {
+      "employee_id": "EMP_007",
+      "name": "Aisha Bello",
+      "role": "Customer Success Manager",
+      "team": "cs",
+      "manager_id": "EMP_002",
+      "timezone": "America/New_York",
+      "aliases": [
+        "aisha",
+        "@aisha",
+        "aisha.bello@company.com"
+      ],
+      "email": "aisha.bello@company.com",
+      "slack_handle": "@aisha"
+    },
+    {
+      "employee_id": "EMP_008",
+      "name": "Jen Park",
+      "role": "Product Manager",
+      "team": "product",
+      "manager_id": "EMP_001",
+      "timezone": "America/Los_Angeles",
+      "aliases": [
+        "jen",
+        "@jen",
+        "jen.park@company.com"
+      ],
+      "email": "jen.park@company.com",
+      "slack_handle": "@jen"
+    },
+    {
+      "employee_id": "EMP_009",
+      "name": "Raj Patel",
+      "role": "SRE",
+      "team": "sre",
+      "manager_id": "EMP_004",
+      "timezone": "Asia/Kolkata",
+      "aliases": [
+        "raj",
+        "@raj",
+        "raj.patel@company.com"
+      ],
+      "email": "raj.patel@company.com",
+      "slack_handle": "@raj"
+    },
+    {
+      "employee_id": "EMP_010",
+      "name": "Leah Cohen",
+      "role": "Counsel",
+      "team": "legal",
+      "manager_id": null,
+      "timezone": "America/New_York",
+      "aliases": [
+        "leah",
+        "@leah",
+        "leah.cohen@company.com"
+      ],
+      "email": "leah.cohen@company.com",
+      "slack_handle": "@leah"
+    },
+    {
+      "employee_id": "EMP_011",
+      "name": "Omar Haddad",
+      "role": "Engineer",
+      "team": "eng",
+      "manager_id": "EMP_004",
+      "timezone": "Europe/Berlin",
+      "aliases": [
+        "omar",
+        "@omar",
+        "omar.haddad@company.com"
+      ],
+      "email": "omar.haddad@company.com",
+      "slack_handle": "@omar"
+    },
+    {
+      "employee_id": "EMP_012",
+      "name": "Nina Volkov",
+      "role": "Support Engineer",
+      "team": "support",
+      "manager_id": "EMP_002",
+      "timezone": "Europe/Berlin",
+      "aliases": [
+        "nina",
+        "@nina",
+        "nina.volkov@company.com"
+      ],
+      "email": "nina.volkov@company.com",
+      "slack_handle": "@nina"
+    },
+    {
+      "employee_id": "EMP_141",
+      "name": "Dana Chen",
+      "role": "Engineer",
+      "team": "eng",
+      "manager_id": "EMP_004",
+      "timezone": "America/Los_Angeles",
+      "aliases": [
+        "dana",
+        "dana chen",
+        "@dana",
+        "dchen",
+        "dana.chen@company.com"
+      ],
+      "email": "dana.chen@company.com",
+      "slack_handle": "@dana"
+    },
+    {
+      "employee_id": "EMP_143",
+      "name": "Dana Whitfield",
+      "role": "Financial Analyst",
+      "team": "finance",
+      "manager_id": "EMP_005",
+      "timezone": "America/New_York",
+      "aliases": [
+        "dana",
+        "dana whitfield",
+        "@dana",
+        "dwhitfield",
+        "dana.whitfield@company.com"
+      ],
+      "email": "dana.whitfield@company.com",
+      "slack_handle": "@dana"
+    },
+    {
+      "employee_id": "EMP_082",
+      "name": "Marcus Webb",
+      "role": "Staff Engineer",
+      "team": "eng",
+      "manager_id": "EMP_004",
+      "timezone": "America/Los_Angeles",
+      "aliases": [
+        "marcus",
+        "@marcus",
+        "marcus.webb@company.com",
+        "mwebb"
+      ],
+      "email": "marcus.webb@company.com",
+      "slack_handle": "@marcus"
+    }
+  ],
+  "projects": [
+    {
+      "project_id": "PROJ_AEGIS",
+      "name": "Project Aegis",
+      "owner_id": "EMP_008",
+      "aliases": [
+        "aegis",
+        "Aegis",
+        "AEG-2",
+        "the billing thing",
+        "billing rewrite"
+      ]
+    },
+    {
+      "project_id": "PROJ_HELIX",
+      "name": "Project Helix",
+      "owner_id": "EMP_011",
+      "aliases": [
+        "helix",
+        "Helix",
+        "HLX",
+        "the auth revamp"
+      ]
+    }
+  ],
+  "services": [
+    {
+      "service_id": "svc_bill",
+      "name": "svc-bill-v2",
+      "owner_id": "EMP_082",
+      "project_id": "PROJ_AEGIS",
+      "aliases": [
+        "bill-v2",
+        "billing service",
+        "svc-bill"
+      ]
+    },
+    {
+      "service_id": "svc_auth",
+      "name": "svc-auth",
+      "owner_id": "EMP_011",
+      "project_id": "PROJ_HELIX",
+      "aliases": [
+        "auth service",
+        "svc-auth-v1"
+      ]
+    },
+    {
+      "service_id": "svc_checkout",
+      "name": "svc-checkout",
+      "owner_id": "EMP_006",
+      "project_id": "PROJ_AEGIS",
+      "aliases": [
+        "checkout service",
+        "co-svc"
+      ]
+    },
+    {
+      "service_id": "svc_notify",
+      "name": "svc-notify",
+      "owner_id": "EMP_009",
+      "project_id": null,
+      "aliases": [
+        "notify",
+        "notification service"
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "client_id": "CUST_991",
+      "name": "Acme Corp",
+      "contract_value_usd": 2400000,
+      "sla": "99.9%",
+      "csm_id": "EMP_007",
+      "aliases": [
+        "Acme",
+        "ACME",
+        "Acme Corp",
+        "acme"
+      ]
+    },
+    {
+      "client_id": "CUST_882",
+      "name": "Northwind Ltd",
+      "contract_value_usd": 600000,
+      "sla": "99.5%",
+      "csm_id": "EMP_007",
+      "aliases": [
+        "Northwind",
+        "northwind",
+        "NW"
+      ]
+    }
+  ],
+  "channels": [
+    {
+      "channel_id": "#eng-billing",
+      "members": [
+        "EMP_082",
+        "EMP_141",
+        "EMP_003",
+        "EMP_004",
+        "EMP_006",
+        "EMP_009"
+      ]
+    },
+    {
+      "channel_id": "#fin-ops",
+      "members": [
+        "EMP_005",
+        "EMP_143",
+        "EMP_001",
+        "EMP_010"
+      ]
+    },
+    {
+      "channel_id": "#eng-aegis",
+      "members": [
+        "EMP_082",
+        "EMP_141",
+        "EMP_004",
+        "EMP_008",
+        "EMP_001"
+      ]
+    },
+    {
+      "channel_id": "#cs-escalations",
+      "members": [
+        "EMP_002",
+        "EMP_007",
+        "EMP_012",
+        "EMP_001"
+      ]
+    },
+    {
+      "channel_id": "#general",
+      "members": [
+        "EMP_001",
+        "EMP_002",
+        "EMP_003",
+        "EMP_004",
+        "EMP_005",
+        "EMP_006",
+        "EMP_007",
+        "EMP_008",
+        "EMP_009",
+        "EMP_010",
+        "EMP_011",
+        "EMP_012",
+        "EMP_141",
+        "EMP_143",
+        "EMP_082"
+      ]
+    }
+  ],
+  "external": [
+    {
+      "entity_id": "EXT_ACME_OPS",
+      "name": "Acme Corp operations",
+      "client_id": "CUST_991"
+    }
+  ]
+}

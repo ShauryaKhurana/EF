@@ -1,0 +1,232 @@
+{
+  "generated_by": "synthetic/bootstrap/generate.py",
+  "seed": 20260514,
+  "event": {
+    "event_id": "evt_001",
+    "day": "2026-05-14",
+    "type": "incident",
+    "severity": 2,
+    "project": "PROJ_AEGIS",
+    "primary_owner": "EMP_082",
+    "impacted": [
+      "svc_bill",
+      "svc_checkout",
+      "CUST_991"
+    ],
+    "facts": {
+      "f1": "root_cause: connection-pool exhaustion in svc-bill-v2",
+      "f2": "trigger: config change merged Thu 18:40 by EMP_141",
+      "f3": "customer_impact: Acme Corp saw 41min checkout downtime",
+      "f4": "financial_impact: $18k SLA credit owed, hits Q3 milestone payout",
+      "f5": "schedule_impact: Aegis GA slips 2 weeks",
+      "f6": "true_owner: EMP_082, not the on-call who was paged"
+    }
+  },
+  "fact_placement": {
+    "f1": [
+      "slk_0041"
+    ],
+    "f2": [
+      "tkt_4402_c2"
+    ],
+    "f3": [
+      "eml_0032"
+    ],
+    "f4": [
+      "slk_0067"
+    ],
+    "f5": [
+      "slk_0072"
+    ],
+    "f6": [
+      "tkt_4402_c3"
+    ]
+  },
+  "conflicts": [
+    {
+      "conflict_id": "cnf_001",
+      "subject": "root cause of the 2026-05-14 svc-bill-v2 outage",
+      "positions": [
+        {
+          "artifact_id": "slk_0040",
+          "claim": "memory leak",
+          "ts_local": "09:18:55",
+          "source_authority": 1
+        },
+        {
+          "artifact_id": "tkt_4402_c5",
+          "claim": "connection pool exhaustion",
+          "ts_local": "16:30:00",
+          "source_authority": 3
+        }
+      ],
+      "resolution": "newer_wins",
+      "resolution_note": "Later timestamp and higher source authority: a ticket postmortem outranks an on-call's first guess in Slack.",
+      "winning_artifact": "tkt_4402_c5"
+    }
+  ],
+  "silence_pairs": [
+    {
+      "silence_id": "sil_001",
+      "fact": "f5",
+      "fact_text": "schedule_impact: Aegis GA slips 2 weeks",
+      "person": "EMP_002",
+      "deadline": "2026-05-14T14:20:41-07:00",
+      "expected_channel": "email",
+      "delivered_in": "slk_0072",
+      "delivered_at": "2026-05-14T13:15:38-07:00",
+      "violating_artifact": "eml_0038",
+      "note": "EMP_002 committed to the original GA date at 14:20. The slip was decided at 13:15 in #eng-aegis, 65 minutes earlier. She is not a member of that channel and no artifact relayed it to her."
+    }
+  ],
+  "questions": [
+    {
+      "question_id": "Q_001",
+      "type": "multi_hop",
+      "asked_as": "EMP_002",
+      "question": "Why is CS flagging churn risk on Acme?",
+      "gold_facts": [
+        "evt_001:f3",
+        "evt_001:f1",
+        "evt_001:f4"
+      ],
+      "gold_artifacts": [
+        "eml_0032",
+        "slk_0041",
+        "slk_0067"
+      ],
+      "min_hops": 3,
+      "vocab_disjoint_hops": 1,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "connection pool",
+        "SLA credit",
+        "ENG-4402"
+      ],
+      "must_not_contain": [
+        "memory leak"
+      ]
+    },
+    {
+      "question_id": "Q_002",
+      "type": "multi_hop",
+      "asked_as": "EMP_002",
+      "question": "What is holding up the Aegis GA date?",
+      "gold_facts": [
+        "evt_001:f5",
+        "evt_001:f1"
+      ],
+      "gold_artifacts": [
+        "slk_0072",
+        "slk_0041"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 1,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "two weeks",
+        "connection pool"
+      ],
+      "must_not_contain": [
+        "memory leak"
+      ]
+    },
+    {
+      "question_id": "Q_003",
+      "type": "multi_hop",
+      "asked_as": "EMP_001",
+      "question": "Who actually owns svc-bill-v2, and who got paged?",
+      "gold_facts": [
+        "evt_001:f6"
+      ],
+      "gold_artifacts": [
+        "tkt_4402_c3",
+        "slk_0039"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "EMP_082",
+        "EMP_003"
+      ],
+      "must_not_contain": []
+    },
+    {
+      "question_id": "Q_004",
+      "type": "conflict",
+      "asked_as": "EMP_001",
+      "question": "What caused the billing outage on May 14?",
+      "gold_facts": [
+        "evt_001:f1"
+      ],
+      "gold_artifacts": [
+        "slk_0040",
+        "tkt_4402_c5",
+        "slk_0041"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [],
+      "acceptable_answer_contains": [
+        "connection pool"
+      ],
+      "must_not_contain": [],
+      "expects_conflict": "cnf_001",
+      "note": "Both positions must be surfaced. An answer that says 'memory leak' full stop is wrong; one that reports only the resolved cause without noting the superseded claim is incomplete."
+    },
+    {
+      "question_id": "Q_005",
+      "type": "silence",
+      "asked_as": "EMP_001",
+      "question": "Is anyone about to promise Acme something we can't deliver?",
+      "gold_facts": [
+        "evt_001:f5"
+      ],
+      "gold_artifacts": [
+        "slk_0072",
+        "eml_0038"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "slack"
+      ],
+      "acceptable_answer_contains": [
+        "EMP_002",
+        "GA"
+      ],
+      "must_not_contain": [],
+      "expects_silence_pair": "sil_001"
+    },
+    {
+      "question_id": "Q_006",
+      "type": "abstention",
+      "asked_as": "EMP_002",
+      "question": "Who signed off on the svc-auth security review?",
+      "gold_facts": [],
+      "gold_artifacts": [],
+      "min_hops": 0,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "slack",
+        "email",
+        "ticket"
+      ],
+      "acceptable_answer_contains": [],
+      "must_not_contain": [
+        "signed off",
+        "approved"
+      ],
+      "expected_behaviour": "abstain",
+      "expected_referral": "EMP_011",
+      "note": "svc-auth exists and is owned by EMP_011, but no artifact in the corpus mentions a security review. A confident answer here is a hallucination. The win condition is 'I don't have that \u2014 svc-auth is owned by Omar Haddad, ask him.'"
+    }
+  ]
+}
