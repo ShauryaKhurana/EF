@@ -1,0 +1,6 @@
+slack_sdk
+google-api-python-client
+google-auth-oauthlib
+anthropic
+google-generativeai
+python-dotenv
