@@ -98,3 +98,30 @@ list of candidate artifacts, whatever chose them.
 - Synthesis truncates the briefing mid-sentence at ~50 words on the 200-artifact corpus
   (`synthesis.py` is nobody's declared lane — flagging, not fixing).
 - Silence detection (Q_005) and explicit conflict records are still unbuilt.
+
+## From Agent 7 (full corpus) — 2026-08-01
+
+Scaled `synthetic/bootstrap/*.py` in place to BUILD_PLAN's Agent 7 target instead
+of writing a separate L0-L4 pipeline (time-boxed decision, not a shortcut on
+quality): `narrative.py` now holds three anchor events (evt_001 billing/Aegis,
+evt_002 Helix vendor throttle, evt_003 Northwind cache latency) and 15 gold
+questions (8 multi-hop, 3 silence, 2 abstention, 2 conflict — the exact
+BUILD_PLAN split). `generate.py` loops over `narrative.EVENTS`/`QUESTIONS` and
+adds per-source exhaust (slack/email/ticket templates) to hit ~3k/300/80
+artifacts. `validate.py` generalized every check that used to assume exactly
+one event/conflict/silence pair to loop over all of them.
+
+`python -m synthetic.bootstrap.generate && python -m synthetic.bootstrap.validate`
+is green: 16/16 checks, 3380 artifacts, byte-identical regeneration, and
+`ingestion.load_corpus_messages()` loads it in ~0.13s with 0 parse failures.
+
+Answer key shape changed for downstream consumers: `key["event"]` (singular) is
+now `key["events"]` (list); `key["fact_placement"]` is now nested by event_id
+(`fact_placement[event_id][fact_id]`) instead of flat. `key["conflicts"]` and
+`key["silence_pairs"]` were already lists and are unchanged in shape.
+
+Not done, flagging rather than fixing: the `~40 anchor events` / `~12 gold`
+scale in BUILD_PLAN is still 3 events, not 12 — the 15-question split was the
+part that's actually gated/demoable, so that's what got built first under time
+pressure. `harness/mutate.py` and `harness/fresh_drop.py` (Agent 8's lane) will
+need to know about multiple events now, not just evt_001.
