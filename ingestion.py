@@ -209,7 +209,7 @@ def load_fixture_messages(path: str | Path = DEFAULT_FIXTURES) -> list[dict]:
         raise IngestionError(f"fixture file not found: {path}")
 
     try:
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise IngestionError(f"{path} is not valid JSON: {e}") from e
 

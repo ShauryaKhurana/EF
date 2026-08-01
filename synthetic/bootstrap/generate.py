@@ -370,12 +370,14 @@ def main() -> None:
         clean = {k: v for k, v in record.items() if k != "_prov"}
         by_source.setdefault(record["source"], []).append(clean)
 
-    (DATA / "world.json").write_text(json.dumps(world, indent=2) + "\n")
-    (DATA / "answer_key.json").write_text(json.dumps(key, indent=2) + "\n")
+    (DATA / "world.json").write_text(json.dumps(world, indent=2) + "\n", encoding="utf-8")
+    (DATA / "answer_key.json").write_text(json.dumps(key, indent=2) + "\n", encoding="utf-8")
 
     for source, records in sorted(by_source.items()):
         path = CORPUS / f"{source}.jsonl"
-        path.write_text("".join(json.dumps(r, sort_keys=True) + "\n" for r in records))
+        path.write_text(
+            "".join(json.dumps(r, sort_keys=True) + "\n" for r in records), encoding="utf-8"
+        )
         print(f"  {path.relative_to(ROOT)}: {len(records)} artifacts")
 
     print(f"\n  data/world.json: {len(world['employees'])} employees, "
