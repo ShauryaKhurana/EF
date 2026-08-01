@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COO Oracle</title>
+<style>
+  :root {
+    --bg: #0b0d10; --panel: #14171c; --border: #262b33; --text: #e8eaed;
+    --muted: #8a919c; --accent: #5fb3ff; --warn: #ff6b6b; --ok: #6bd48f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: .02em; }
+  header .health { font-size: 12px; color: var(--muted); }
+  main { max-width: 900px; margin: 0 auto; padding: 20px; }
+
+  .ask-bar { display: flex; gap: 8px; flex-wrap: wrap; }
+  input[type=text] {
+    flex: 1 1 400px; background: var(--panel); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 12px; border-radius: 6px; font-size: 15px;
+  }
+  select, button {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 12px; border-radius: 6px; font-size: 14px; cursor: pointer;
+  }
+  button.primary { background: var(--accent); color: #05131f; border-color: var(--accent); font-weight: 600; }
+  button.primary:disabled { opacity: .5; cursor: default; }
+  label.toggle { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+
+  .chips { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    font-size: 12px; color: var(--muted); border: 1px solid var(--border);
+    padding: 4px 9px; border-radius: 999px; cursor: pointer; background: var(--panel);
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); }
+
+  .stages { margin-top: 18px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .stage {
+    font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--panel); color: var(--muted);
+  }
+  .stage.built { color: var(--ok); border-color: #2a5a3d; }
+  .stage.missing { color: var(--muted); opacity: .6; }
+
+  .panel { margin-top: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+  .warning-block {
+    background: #2a1414; border: 1px solid #5a2a2a; color: var(--warn);
+    padding: 10px 12px; border-radius: 6px; font-size: 13px; margin-bottom: 12px; white-space: pre-wrap;
+  }
+  .abstain-card {
+    border: 1px solid #4a3a1a; background: #241d10; border-radius: 8px; padding: 14px; margin-top: 8px;
+  }
+  .abstain-card .who { margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .answer-text { white-space: pre-wrap; font-size: 15px; }
+  .cite {
+    color: var(--accent); cursor: pointer; border-bottom: 1px dotted var(--accent);
+  }
+  .footer { margin-top: 10px; font-size: 12px; color: var(--muted); }
+
+  .candidates { margin-top: 18px; }
+  .candidates h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 0 0 8px; }
+  .artifact { border: 1px solid var(--border); border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; background: #0f1216; }
+  .artifact.highlight { border-color: var(--accent); }
+  .artifact .meta { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .artifact .id { color: var(--accent); font-family: ui-monospace, monospace; }
+  .artifact .path { font-family: ui-monospace, monospace; color: var(--muted); }
+  .artifact .text { font-size: 13px; }
+
+  .error-box {
+    border: 1px solid #5a2a2a; background: #2a1414; color: var(--warn);
+    padding: 12px 14px; border-radius: 8px; margin-top: 18px; font-size: 14px;
+  }
+  .loading { color: var(--muted); font-size: 13px; margin-top: 14px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>COO Oracle</h1>
+  <span class="health" id="health">loading…</span>
+</header>
+<main>
+  <div class="ask-bar">
+    <input type="text" id="question" placeholder="Ask about anything happening across the company…" autofocus>
+    <select id="source">
+      <option value="">all sources</option>
+      <option value="slack">slack</option>
+      <option value="email">email</option>
+      <option value="ticket">ticket</option>
+    </select>
+    <label class="toggle"><input type="checkbox" id="noLlm"> retrieval only (no LLM)</label>
+    <button class="primary" id="ask">Ask</button>
+  </div>
+  <div class="chips" id="chips"></div>
+
+  <div class="stages" id="stages"></div>
+  <div id="loading" class="loading" style="display:none;">running…</div>
+  <div id="error" class="error-box" style="display:none;"></div>
+  <div id="answerPanel" class="panel" style="display:none;"></div>
+  <div class="candidates" id="candidates" style="display:none;">
+    <h3>Retrieved evidence</h3>
+    <div id="candidateList"></div>
+  </div>
+</main>
+
+<script>
+const $ = (sel) => document.querySelector(sel);
+const healthEl = $('#health'), chipsEl = $('#chips'), stagesEl = $('#stages');
+const loadingEl = $('#loading'), errorEl = $('#error'), answerEl = $('#answerPanel');
+const candWrapEl = $('#candidates'), candListEl = $('#candidateList');
+const askBtn = $('#ask'), qInput = $('#question');
+
+let lastCandidates = [];
+
+async function loadHealth() {
+  try {
+    const r = await fetch('/api/health');
+    const h = await r.json();
+    healthEl.textContent = `${h.artifacts} artifacts · ${h.failures} parse failure(s) · model ${h.llm_model}`;
+  } catch (e) {
+    healthEl.textContent = 'health check failed: ' + e;
+  }
+}
+
+async function loadQuestions() {
+  try {
+    const r = await fetch('/api/questions');
+    const qs = await r.json();
+    chipsEl.innerHTML = '';
+    qs.forEach(q => {
+      const c = document.createElement('div');
+      c.className = 'chip';
+      c.textContent = `${q.question_id}: ${q.question}`;
+      c.title = q.type || '';
+      c.onclick = () => { qInput.value = q.question; qInput.focus(); };
+      chipsEl.appendChild(c);
+    });
+  } catch (e) { /* non-fatal: judges' own question is the real input path */ }
+}
+
+function renderStages(stages) {
+  stagesEl.innerHTML = '';
+  (stages || []).forEach(s => {
+    const d = document.createElement('div');
+    d.className = 'stage ' + (s.built ? 'built' : 'missing');
+    let label = s.name;
+    if (s.built) {
+      const bits = [];
+      if (s.count !== undefined) bits.push(`${s.count}`);
+      if (s.dropped) bits.push(`${s.dropped} dropped`);
+      if (s.conflicts) bits.push(`${s.conflicts} conflicts`);
+      if (s.abstained) bits.push('abstained');
+      if (s.ms !== undefined) bits.push(`${s.ms}ms`);
+      label += ': ' + bits.join(' · ');
+    } else {
+      label += ': not built' + (s.detail ? ` (${s.detail})` : '');
+    }
+    d.textContent = label;
+    stagesEl.appendChild(d);
+  });
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function linkifyCitations(text) {
+  // Turns [slk_0041] or [slk_0163, slk_0185] into clickable spans, same bracket
+  // format src/answer.py's _cited_ids parses.
+  return escapeHtml(text).replace(/\[([A-Za-z0-9_\-,;\s]+)\]/g, (m, group) => {
+    const ids = group.split(/[,;]\s*/).map(s => s.trim()).filter(s => /^[A-Za-z0-9_\-]+$/.test(s));
+    if (!ids.length) return m;
+    const spans = ids.map(id => `<span class="cite" data-id="${id}">${id}</span>`).join(', ');
+    return `[${spans}]`;
+  });
+}
+
+function renderCandidates(candidates) {
+  lastCandidates = candidates || [];
+  candListEl.innerHTML = '';
+  if (!lastCandidates.length) { candWrapEl.style.display = 'none'; return; }
+  candWrapEl.style.display = 'block';
+  lastCandidates.forEach(c => {
+    const a = c.artifact || {};
+    const div = document.createElement('div');
+    div.className = 'artifact';
+    div.id = 'artifact-' + c.artifact_id;
+    const path = (c.path || []).join(' → ');
+    div.innerHTML = `
+      <div class="meta"><span class="id">[${c.artifact_id}]</span> ${a.source || ''} · ${a.ts || 'no ts'} · sender ${a.sender_id || 'unknown'}
+        ${path ? `· hop path: <span class="path">${escapeHtml(path)}</span>` : ''}</div>
+      <div class="text">${escapeHtml((a.text || '').slice(0, 500))}</div>`;
+    candListEl.appendChild(div);
+  });
+}
+
+function highlightArtifact(id) {
+  document.querySelectorAll('.artifact.highlight').forEach(el => el.classList.remove('highlight'));
+  const el = document.getElementById('artifact-' + id);
+  if (el) { el.classList.add('highlight'); el.scrollIntoView({behavior: 'smooth', block: 'center'}); }
+}
+
+function renderAnswer(data) {
+  answerEl.style.display = 'block';
+  if (data.no_llm) {
+    answerEl.innerHTML = `<div class="answer-text">(retrieval only — no LLM call made; ${data.candidates.length} candidate(s) below)</div>`;
+    return;
+  }
+  const ans = data.answer;
+  let html = '';
+  const warnMatch = ans.text.match(/\n\n\[WARNING: fabricated citation[^\]]*\]/);
+  let mainText = ans.text;
+  if (warnMatch) {
+    html += `<div class="warning-block">${escapeHtml(warnMatch[0].trim())}</div>`;
+    mainText = ans.text.replace(warnMatch[0], '');
+  }
+  if (ans.abstained) {
+    const who = (data.who_would_know || []).map(w => escapeHtml(w.display)).join(', ') || 'no owner on record';
+    html += `<div class="abstain-card">
+      <div class="answer-text">${linkifyCitations(mainText)}</div>
+      <div class="who">Who would know: ${who}</div>
+    </div>`;
+  } else {
+    html += `<div class="answer-text">${linkifyCitations(mainText)}</div>`;
+  }
+  if (ans.conflicts && ans.conflicts.length) {
+    html += '<div class="footer"><strong>Conflicts:</strong><ul>' +
+      ans.conflicts.map(c => `<li>${escapeHtml(c.subject)}: ${escapeHtml(c.resolution)} — ${escapeHtml(c.note || '')}</li>`).join('') +
+      '</ul></div>';
+  }
+  if (data.alerts && data.alerts.length) {
+    html += '<div class="footer"><strong>Proactive alerts:</strong><ul>' +
+      data.alerts.map(a => `<li>${escapeHtml(a)}</li>`).join('') + '</ul></div>';
+  }
+  html += `<div class="footer">${escapeHtml(data.llm)} · wall clock ${data.elapsed_s}s</div>`;
+  answerEl.innerHTML = html;
+  answerEl.querySelectorAll('.cite').forEach(el => {
+    el.onclick = () => highlightArtifact(el.dataset.id);
+  });
+}
+
+async function ask() {
+  const question = qInput.value.trim();
+  if (!question) return;
+  errorEl.style.display = 'none';
+  answerEl.style.display = 'none';
+  candWrapEl.style.display = 'none';
+  stagesEl.innerHTML = '';
+  loadingEl.style.display = 'block';
+  askBtn.disabled = true;
+  try {
+    const r = await fetch('/api/ask', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        question,
+        no_llm: $('#noLlm').checked,
+        only_source: $('#source').value || null,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) {
+      errorEl.style.display = 'block';
+      errorEl.textContent = `${data.error}: ${data.detail}`;
+      return;
+    }
+    renderStages(data.stages);
+    renderCandidates(data.candidates);
+    renderAnswer(data);
+  } catch (e) {
+    errorEl.style.display = 'block';
+    errorEl.textContent = 'Request failed: ' + e;
+  } finally {
+    loadingEl.style.display = 'none';
+    askBtn.disabled = false;
+  }
+}
+
+askBtn.onclick = ask;
+qInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
+
+loadHealth();
+loadQuestions();
+</script>
+</body>
+</html>
