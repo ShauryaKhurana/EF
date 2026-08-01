@@ -1,0 +1,187 @@
+{
+  "messages": [
+    {
+      "id": "18fa1c2d3e4f5a6b",
+      "threadId": "18fa1c2d3e4f5a6b",
+      "labelIds": [
+        "INBOX",
+        "UNREAD"
+      ],
+      "snippet": "All green on Mobile app v3. Onboarding rewrite merged Tuesday...",
+      "internalDate": "1785577200000",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+          {
+            "name": "From",
+            "value": "Dan Reyes <dan@company.com>"
+          },
+          {
+            "name": "To",
+            "value": "leadership@company.com"
+          },
+          {
+            "name": "Subject",
+            "value": "Mobile app v3 — weekly"
+          },
+          {
+            "name": "Date",
+            "value": "Fri, 1 Aug 2026 09:40:00 +0000"
+          }
+        ],
+        "body": {
+          "size": 229,
+          "data": "QWxsIGdyZWVuIG9uIE1vYmlsZSBhcHAgdjMuCgpPbmJvYXJkaW5nIHJld3JpdGUgbWVyZ2VkIFR1ZXNkYXksIFFBIHNpZ25lZCBvZmYgdGhpcyBtb3JuaW5nLCBhbmQgd2UncmUgb24Kc2NoZWR1bGUgdG8gc2hpcCB0byBUZXN0RmxpZ2h0IG5leHQgV2VkbmVzZGF5LiBObyBibG9ja2Vycy4gSSdsbCBrZWVwIG93bmluZwp0aGUgcmVsZWFzZS4KCi0tCkRhbiBSZXllcwpFbmdpbmVlcmluZyBNYW5hZ2VyCg"
+        }
+      }
+    },
+    {
+      "id": "18fa2b3c4d5e6f70",
+      "threadId": "18fa2b3c4d5e6f70",
+      "labelIds": [
+        "INBOX"
+      ],
+      "snippet": "Heads up on the data warehouse cutover - we're at risk...",
+      "internalDate": "1785583860000",
+      "payload": {
+        "mimeType": "multipart/alternative",
+        "headers": [
+          {
+            "name": "From",
+            "value": "Sofia Marin <sofia@company.com>"
+          },
+          {
+            "name": "To",
+            "value": "leadership@company.com"
+          },
+          {
+            "name": "Subject",
+            "value": "Data warehouse cutover — heads up"
+          },
+          {
+            "name": "Date",
+            "value": "Fri, 1 Aug 2026 11:31:00 +0000"
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "partId": "0",
+            "mimeType": "text/plain",
+            "body": {
+              "size": 282,
+              "data": "SGVhZHMgdXAgb24gdGhlIGRhdGEgd2FyZWhvdXNlIGN1dG92ZXIg4oCUIHdlJ3JlIGF0IHJpc2suCgpTbm93Zmxha2UgcHVzaGVkIG91ciBwcm92aXNpb25pbmcgd2luZG93IGJ5IHR3byB3ZWVrcywgd2hpY2ggZWF0cyB0aGUgZW50aXJlCmJ1ZmZlciB3ZSBoYWQgYmVmb3JlIHRoZSBRMyBjbG9zZS4gTm90IGJsb2NrZWQgeWV0OiB3ZSBjYW4gc3RpbGwgaGl0IHRoZSBkYXRlCmlmIHByb3Zpc2lvbmluZyBsYW5kcyBieSB0aGUgMTR0aCwgYnV0IGl0J3MgdGlnaHQuIEkgb3duIHRoaXMuCgpTb2ZpYQo"
+            }
+          },
+          {
+            "partId": "1",
+            "mimeType": "text/html",
+            "body": {
+              "size": 89,
+              "data": "PGRpdiBkaXI9Imx0ciI-PHA-SGVhZHMgdXAgb24gdGhlIGRhdGEgd2FyZWhvdXNlIGN1dG92ZXIgJm1kYXNoOyB3ZSdyZSBhdCByaXNrLjwvcD48L2Rpdj4"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "18fa3c4d5e6f8091",
+      "threadId": "18f9aabbccddeeff",
+      "labelIds": [
+        "INBOX",
+        "IMPORTANT"
+      ],
+      "snippet": "The SOC2 readiness review is blocked pending the external auditor...",
+      "internalDate": "1785589320000",
+      "payload": {
+        "mimeType": "multipart/mixed",
+        "headers": [
+          {
+            "name": "From",
+            "value": "legal@company.com"
+          },
+          {
+            "name": "To",
+            "value": "leadership@company.com"
+          },
+          {
+            "name": "Subject",
+            "value": "Re: SOC2 review — status"
+          },
+          {
+            "name": "Date",
+            "value": "Fri, 1 Aug 2026 13:02:00 +0000"
+          }
+        ],
+        "body": {
+          "size": 0
+        },
+        "parts": [
+          {
+            "partId": "0",
+            "mimeType": "multipart/alternative",
+            "body": {
+              "size": 0
+            },
+            "parts": [
+              {
+                "partId": "0.0",
+                "mimeType": "text/plain",
+                "body": {
+                  "size": 448,
+                  "data": "VGhlIFNPQzIgcmVhZGluZXNzIHJldmlldyBpcyBibG9ja2VkIHBlbmRpbmcgdGhlIGV4dGVybmFsIGF1ZGl0b3IncyByZXNwb25zZQpvbiBzY29wZS4gV2UndmUgYmVlbiB3YWl0aW5nIG5pbmUgZGF5cy4gVW50aWwgdGhleSBjb25maXJtIHNjb3BlIHdlIGNhbid0IHN0YXJ0CmV2aWRlbmNlIGNvbGxlY3Rpb24sIGFuZCB0aGUgY2VydGlmaWNhdGlvbiBkYXRlIGlzIGF0IHJpc2suCgpPbiBXZWQsIEp1bCAyMywgMjAyNiBhdCA0OjEyIFBNIFByaXlhIFJhbWFuIDxwcml5YUBjb21wYW55LmNvbT4gd3JvdGU6Cj4gUXVpY2sgY2hlY2sgb24gU09DMiDigJQgYXJlIHdlIHN0aWxsIG9uIHRyYWNrIGZvciB0aGUgU2VwdGVtYmVyIGNlcnQgZGF0ZT8KPiBMYXN0IEkgaGVhcmQgZXZpZGVuY2UgY29sbGVjdGlvbiB3YXMgdW5kZXJ3YXkgYW5kIGV2ZXJ5dGhpbmcgd2FzIGdyZWVuLgo-Cj4gUHJpeWEK"
+                }
+              }
+            ]
+          },
+          {
+            "partId": "1",
+            "mimeType": "application/pdf",
+            "filename": "auditor-scope-draft.pdf",
+            "body": {
+              "attachmentId": "ANGjdJ_xyz",
+              "size": 88213
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "18fa4d5e6f8091a2",
+      "threadId": "18fa4d5e6f8091a2",
+      "labelIds": [
+        "INBOX",
+        "CATEGORY_UPDATES"
+      ],
+      "snippet": "Your weekly Confluence digest is ready",
+      "internalDate": "1785591000000",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [
+          {
+            "name": "From",
+            "value": "Confluence <noreply@atlassian.com>"
+          },
+          {
+            "name": "To",
+            "value": "leadership@company.com"
+          },
+          {
+            "name": "Subject",
+            "value": "Your weekly Confluence digest"
+          },
+          {
+            "name": "Date",
+            "value": "Fri, 1 Aug 2026 13:30:00 +0000"
+          }
+        ],
+        "body": {
+          "size": 120,
+          "data": "WW91ciB3ZWVrbHkgZGlnZXN0IGlzIHJlYWR5LiAxNCBwYWdlcyB3ZXJlIHVwZGF0ZWQgaW4gc3BhY2VzIHlvdSBmb2xsb3cuIFZpZXcgdGhlbSBpbiBDb25mbHVlbmNlLgo"
+        }
+      }
+    }
+  ]
+}

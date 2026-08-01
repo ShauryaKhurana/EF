@@ -1,35 +1,35 @@
-from dataclasses import dataclass, asdict
-from typing import List, Dict, Any
+"""Shared data model for status items.
+
+The canonical definition lives in `extraction.py`, which is deliberately
+self-contained and runnable on its own. This module re-exports it so
+`from schema import StatusItem` keeps working.
+
+NOTE: the original scaffold defined a different StatusItem here
+(sender/category/summary/detail/action_items). That shape is gone — the pipeline
+now uses source/topic/status/owner/blocker/confidence.
+"""
+
+from dataclasses import asdict
+
+from extraction import (
+    CONFIDENCES,
+    FIELDS,
+    RESPONSE_SCHEMA,
+    SOURCES,
+    STATUSES,
+    StatusItem,
+)
+
+__all__ = [
+    "StatusItem",
+    "SOURCES",
+    "STATUSES",
+    "CONFIDENCES",
+    "FIELDS",
+    "RESPONSE_SCHEMA",
+    "to_dict",
+]
 
 
-@dataclass
-class StatusItem:
-    sender: str
-    source: str
-    timestamp: str
-    category: str
-    summary: str
-    detail: str
-    action_items: List[str]
-
-
-STATUS_ITEM_SCHEMA: Dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "sender": {"type": "string"},
-        "source": {"type": "string"},
-        "timestamp": {"type": "string"},
-        "category": {"type": "string"},
-        "summary": {"type": "string"},
-        "detail": {"type": "string"},
-        "action_items": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
-    },
-    "required": ["sender", "source", "timestamp", "category", "summary", "detail", "action_items"],
-}
-
-
-def to_dict(item: StatusItem) -> Dict[str, Any]:
+def to_dict(item: StatusItem) -> dict:
     return asdict(item)
