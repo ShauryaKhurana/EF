@@ -39,9 +39,11 @@ what the person would do next.
 — your data may be stale.
 
 Citations:
-- Topics carry evidence: verbatim quotes with the artifact id they came from, like \
-[slk_0041]. Every factual claim you make must end with the artifact id(s) it rests on, \
-in square brackets.
+- Topics carry evidence: verbatim quotes with the artifact id they came from and when \
+that artifact was written, like [slk_0041] (2026-05-14T13:55:22+00:00). Every factual \
+claim you make must end with the artifact id(s) it rests on, in square brackets.
+- The evidence timestamp is when the thing actually happened; "last updated" is only \
+when we ingested it. Answer date questions from the evidence timestamps.
 - Cite only ids present in the CONTEXT. Never invent an id, never cite a topic name as \
 though it were an id.
 - If a topic you want to use has no evidence listed, you may still report it, but say \
@@ -59,11 +61,17 @@ class Answer:
 
     @property
     def cited_ids(self) -> list[str]:
-        """Artifact ids the answer text actually cites, in order of first appearance."""
+        """Artifact ids the answer text actually cites, in order of first appearance.
+
+        Handles both [slk_0088] and the grouped form [slk_0163, slk_0185] that the
+        model uses when one claim rests on several artifacts.
+        """
         seen: list[str] = []
-        for match in re.findall(r"\[([A-Za-z0-9_\-]+)\]", self.text):
-            if match not in seen:
-                seen.append(match)
+        for group in re.findall(r"\[([^\[\]]+)\]", self.text):
+            for token in re.split(r"[,;]\s*", group):
+                token = token.strip()
+                if re.fullmatch(r"[A-Za-z0-9_\-]+", token) and token not in seen:
+                    seen.append(token)
         return seen
 
     @property
@@ -109,7 +117,9 @@ def _render_context(topics: list[dict]) -> str:
             parts.append("  evidence:")
             for entry in evidence:
                 span = " ".join(str(entry.get("span", "")).split())
-                parts.append(f"    [{entry.get('artifact_id')}] \"{span}\"")
+                when = entry.get("ts")
+                stamp = f" ({when})" if when else ""
+                parts.append(f"    [{entry.get('artifact_id')}]{stamp} \"{span}\"")
         else:
             parts.append("  evidence: none stored")
         lines.append("\n".join(parts))

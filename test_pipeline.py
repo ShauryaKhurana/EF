@@ -1063,6 +1063,10 @@ def test_corpus_ingest_reports_a_missing_directory_by_name():
 
 def test_evidence_is_persisted_and_returned_with_topics():
     with store_mod.Store(temp_db()) as store:
+        store.add_messages([
+            {"source": "slack", "sender": "priya", "timestamp": "2026-05-14T20:55:22+00:00",
+             "text": "pool's maxed again on bill-v2", "artifact_id": "slk_0041"},
+        ])
         store.upsert_items([
             {"source": "slack", "topic": "Billing migration", "status": "blocked",
              "owner": "Marcus", "blocker": "legal", "confidence": "high",
@@ -1070,9 +1074,40 @@ def test_evidence_is_persisted_and_returned_with_topics():
         ])
         topics = store.topics()
         assert len(topics) == 1, topics
+        # The artifact's own timestamp comes back, not the ingest time — date
+        # questions are answered from this.
         assert topics[0]["evidence"] == [
-            {"artifact_id": "slk_0041", "span": "pool's maxed again"}
+            {"artifact_id": "slk_0041", "span": "pool's maxed again",
+             "ts": "2026-05-14T20:55:22+00:00"}
         ], topics[0]["evidence"]
+
+
+def test_evidence_without_a_stored_message_still_returns():
+    """A span whose artifact was never stored must not vanish — just no timestamp."""
+    with store_mod.Store(temp_db()) as store:
+        store.upsert_items([
+            {"source": "slack", "topic": "Orphan", "status": "unclear", "owner": None,
+             "blocker": None, "confidence": "low",
+             "evidence": [{"artifact_id": "slk_9001", "span": "something happened"}]},
+        ])
+        evidence = store.topics()[0]["evidence"]
+        assert evidence == [
+            {"artifact_id": "slk_9001", "span": "something happened", "ts": None}
+        ], evidence
+
+
+def test_agent_parses_grouped_citations():
+    """The model writes [a, b] when one claim rests on several artifacts."""
+    answer = agent.Answer(
+        text="Auth revamp is on track [slk_0163, slk_0185; slk_0187].",
+        topics=[{"topic": "Auth", "evidence": [
+            {"artifact_id": "slk_0163", "span": "x"},
+            {"artifact_id": "slk_0185", "span": "y"},
+            {"artifact_id": "slk_0187", "span": "z"},
+        ]}],
+    )
+    assert answer.cited_ids == ["slk_0163", "slk_0185", "slk_0187"], answer.cited_ids
+    assert answer.uncited_claims == [], answer.uncited_claims
 
 
 def test_agent_flags_a_citation_it_was_never_given():

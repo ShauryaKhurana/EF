@@ -261,12 +261,22 @@ class Store:
         return item
 
     def evidence_for(self, key: str, limit: int = 6) -> list[dict]:
-        """Verbatim quotes backing a topic, newest first."""
+        """Verbatim quotes backing a topic, with when the artifact was actually written.
+
+        The join is on messages.id, which equals artifact_id for corpus records. That
+        timestamp is the artifact's own — topics.last_seen is only when we ingested it,
+        so without this a question like "what happened on May 14" has no date to match.
+        """
         return [
-            {"artifact_id": row["artifact_id"], "span": row["span"]}
+            {
+                "artifact_id": row["artifact_id"],
+                "span": row["span"],
+                "ts": row["ts"] or None,
+            }
             for row in self.conn.execute(
-                "SELECT artifact_id, span FROM topic_evidence WHERE topic_key = ?"
-                " ORDER BY seen_at DESC, artifact_id LIMIT ?",
+                "SELECT e.artifact_id, e.span, m.timestamp AS ts FROM topic_evidence e"
+                " LEFT JOIN messages m ON m.id = e.artifact_id"
+                " WHERE e.topic_key = ? ORDER BY m.timestamp DESC, e.artifact_id LIMIT ?",
                 (key, limit),
             )
         ]
