@@ -77,6 +77,9 @@ CHANNELS = [
 
 
 def build_world() -> dict:
+    from synthetic.bootstrap import narrative as N
+
+    channels = list(CHANNELS) + N.EXTRA_CHANNELS
     return {
         "generated_by": "synthetic/bootstrap/generate.py",
         "seed": 20260514,
@@ -104,10 +107,10 @@ def build_world() -> dict:
             for cid, name, value, sla, csm, aliases in CLIENTS
         ],
         "channels": [
-            {"channel_id": ch, "members": members} for ch, members in CHANNELS
+            {"channel_id": ch, "members": members} for ch, members in channels
         ],
         "external": [
             {"entity_id": "EXT_ACME_OPS", "name": "Acme Corp operations",
-             "client_id": "CUST_991"}
-        ],
+             "client_id": "CUST_991"},
+        ] + N.EXTRA_EXTERNAL,
     }

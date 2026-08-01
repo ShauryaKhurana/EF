@@ -5,9 +5,10 @@ byte-identical output.
 
     python3 -m synthetic.bootstrap.generate
 
-DATASET_DESIGN §6 H+0:30 calls this non-negotiable: ~200 artifacts covering one
-incident end to end, so Agents 2-6 build against real files today instead of
-waiting on the full 90-day corpus. Ugly and small is correct.
+BUILD_PLAN Agent 7 scope: three anchor events (narrative.EVENTS), 15 gold
+questions, scaled up from the original 200-artifact stub toward the reduced
+target (~3k Slack, ~300 email, ~80 ticket, 30 days). Ugly and small was
+correct for H+0:30; this is the same generator scaled, not a rewrite.
 
 Provenance (_prov) is carried internally and STRIPPED at assembly — it lands in
 the answer key instead. A leak means the agent can cheat and you won't notice
@@ -28,11 +29,14 @@ DATA = ROOT / "data"
 CORPUS = DATA / "corpus"
 
 TZ = N.TZ
-INCIDENT_DAY = N.INCIDENT_DAY
 CORPUS_START = date(2026, 4, 20)
 CORPUS_END = date(2026, 5, 20)
 
-TARGET_TOTAL = 200
+# Reduced from DATASET_DESIGN's ~18k/~1.5k/~400 to a same-day-buildable scale
+# per BUILD_PLAN Agent 7 (~3k Slack, ~300 email, ~80 ticket).
+SLACK_TARGET = 3000
+EMAIL_TARGET = 300
+TICKET_TARGET = 80
 
 
 def ts(day: str, time_local: str) -> str:
@@ -61,10 +65,33 @@ def artifact(
     return record
 
 
+def _event_artifacts(event: dict) -> list[dict]:
+    """All hand-authored artifacts for one narrative event, provenance attached."""
+    specs = list(event["gold"]) + list(event["scaffold"])
+    if event.get("conflict"):
+        specs += event["conflict"]["artifacts"]
+    if event.get("silence"):
+        specs += [event["silence"]["artifact"]]
+
+    out = []
+    for spec in specs:
+        out.append(artifact(
+            spec["artifact_id"], spec["source"], spec["container_id"],
+            spec["parent_id"], spec["sender_id"], spec["recipients"],
+            ts(event["day"], spec["time"]), spec["text"],
+            prov={
+                "event_id": event["event_id"],
+                "fact_ids": spec.get("carries_facts", []),
+                "hop_index": spec.get("hop_index"),
+            },
+        ))
+    return out
+
+
 # --- Exhaust ------------------------------------------------------------------
-# ~70% of volume. Entity-realistic: it name-drops real people, projects and
+# The bulk of volume. Entity-realistic: it name-drops real people, projects and
 # services at plausible rates, so it is genuinely confusable with signal.
-# Exhaust that never mentions Aegis is not a distractor.
+# Exhaust that never mentions Aegis/Helix is not a distractor.
 
 STANDUP = [
     "yesterday: {proj} tickets. today: same. no blockers",
@@ -119,7 +146,7 @@ FIN_NOISE = [
 ]
 
 # Near-miss distractors (§5-Agent-E): threads that look exactly like they would
-# answer the gold question and do not. A DIFFERENT outage, a DIFFERENT service,
+# answer a gold question and do not. A DIFFERENT outage, a DIFFERENT service,
 # three weeks earlier — and one of them mentions a memory leak, which is the
 # plausible-but-wrong cause the answer key forbids.
 NEAR_MISS = [
@@ -137,6 +164,26 @@ NEAR_MISS = [
      "Northwind SLA credit from April was 2k, already booked against Q2"),
 ]
 
+EMAIL_EXHAUST = [
+    "Subject: Weekly eng notes\n\n{proj} status: on track. {svc} nothing new to report.",
+    "Subject: Re: PTO request\n\nApproved — enjoy the time off, {who} has the pager.",
+    "Subject: Invoice due\n\nInvoice for {client} is due end of month, PO number needed.",
+    "Subject: Great meeting you\n\nFollowing up from the call — let's reconnect next week.",
+    "Subject: Company update\n\nAll-hands recap attached. Kudos board is open for nominations.",
+    "Subject: Re: onboarding checklist\n\nLooks good, {who} will finish the laptop setup Monday.",
+    "Subject: {client} check-in\n\nQuarterly check-in scheduled, agenda attached, nothing urgent on {proj}.",
+    "Subject: Benefits enrollment reminder\n\nOpen enrollment closes Friday, see the HR portal.",
+]
+
+TICKET_EXHAUST = [
+    "Reproduced on staging, low priority. Assigning to {who}.",
+    "Cannot reproduce on {svc}, closing as not-a-bug.",
+    "Duplicate of an earlier ticket, closing and linking.",
+    "Waiting on customer response, no update in 5 days.",
+    "{svc}: minor UI polish requested, backlog.",
+    "Docs typo in the {proj} runbook, fixed.",
+]
+
 
 def working_days() -> list[str]:
     days, cursor = [], CORPUS_START
@@ -147,34 +194,39 @@ def working_days() -> list[str]:
     return days
 
 
-def build_exhaust(rng: random.Random, world: dict, needed: int) -> list[dict]:
+def _id_factory(prefix: str, start: int):
+    counter = start
+
+    def next_id() -> str:
+        nonlocal counter
+        counter += 1
+        return f"{prefix}_{counter:04d}"
+
+    return next_id
+
+
+def build_slack_exhaust(rng: random.Random, world: dict, needed: int) -> list[dict]:
     people = [e["employee_id"] for e in world["employees"] if e["employee_id"] != "EMP_002"]
     proj_aliases = [a for p in world["projects"] for a in p["aliases"]]
     svc_aliases = [a for s in world["services"] for a in s["aliases"]]
     client_aliases = [a for c in world["clients"] for a in c["aliases"]]
     days = working_days()
+    next_id = _id_factory("slk", 1000)
 
     out: list[dict] = []
-    counter = 100
 
-    def next_id(prefix: str) -> str:
-        nonlocal counter
-        counter += 1
-        return f"{prefix}_{counter:04d}"
-
-    # Near-miss distractors first, so they always survive the target trim.
     for i, (channel, sender, template) in enumerate(NEAR_MISS):
         day = days[rng.randrange(0, 12)]
         out.append(artifact(
-            next_id("slk"), "slack", channel, None, sender, [],
+            next_id(), "slack", channel, None, sender, [],
             ts(day, f"{9 + i % 7:02d}:{(13 * i) % 60:02d}:0{i % 10}"),
             template.format(d=rng.randrange(11, 26)),
             meta={"near_miss": True},
         ))
 
     pools = [
-        ("standup", STANDUP, ["#general", "#eng-billing", "#eng-aegis"]),
-        ("bot", BOT, ["#eng-billing", "#eng-aegis", "#general"]),
+        ("standup", STANDUP, ["#general", "#eng-billing", "#eng-aegis", "#eng-helix"]),
+        ("bot", BOT, ["#eng-billing", "#eng-aegis", "#eng-helix", "#general"]),
         ("chatter", CHATTER, ["#general"]),
         ("pto", PTO, ["#general", "#eng-billing"]),
         ("cs", CS_NOISE, ["#cs-escalations"]),
@@ -211,10 +263,59 @@ def build_exhaust(rng: random.Random, world: dict, needed: int) -> list[dict]:
             text = text.lower()
 
         out.append(artifact(
-            next_id("slk"), "slack", channel, None, sender, [],
+            next_id(), "slack", channel, None, sender, [],
             ts(day, f"{hour:02d}:{minute:02d}:{second:02d}"), text,
         ))
 
+    return out
+
+
+def build_email_exhaust(rng: random.Random, world: dict, needed: int) -> list[dict]:
+    people = [e["employee_id"] for e in world["employees"]]
+    proj_aliases = [a for p in world["projects"] for a in p["aliases"]]
+    svc_aliases = [a for s in world["services"] for a in s["aliases"]]
+    client_aliases = [a for c in world["clients"] for a in c["aliases"]]
+    days = working_days()
+    next_id = _id_factory("eml", 1000)
+    next_thread = _id_factory("thr_exh", 1000)
+
+    out: list[dict] = []
+    while len(out) < needed:
+        template = rng.choice(EMAIL_EXHAUST)
+        sender, recipient = rng.sample(people, 2)
+        day = rng.choice(days)
+        text = template.format(
+            proj=rng.choice(proj_aliases), svc=rng.choice(svc_aliases),
+            client=rng.choice(client_aliases), who=rng.choice(people),
+        )
+        out.append(artifact(
+            next_id(), "email", next_thread(), None, sender, [recipient],
+            ts(day, f"{rng.randrange(8, 18):02d}:{rng.randrange(0, 60):02d}:{rng.randrange(0, 60):02d}"),
+            text,
+        ))
+    return out
+
+
+def build_ticket_exhaust(rng: random.Random, world: dict, needed: int) -> list[dict]:
+    people = [e["employee_id"] for e in world["employees"]]
+    proj_aliases = [a for p in world["projects"] for a in p["aliases"]]
+    svc_aliases = [a for s in world["services"] for a in s["aliases"]]
+    days = working_days()
+    next_ticket_key = _id_factory("TKT", 1000)
+    next_id = _id_factory("tkt", 6000)
+
+    out: list[dict] = []
+    while len(out) < needed:
+        template = rng.choice(TICKET_EXHAUST)
+        sender = rng.choice(people)
+        day = rng.choice(days)
+        text = template.format(svc=rng.choice(svc_aliases), proj=rng.choice(proj_aliases),
+                                who=rng.choice(people))
+        out.append(artifact(
+            next_id(), "ticket", next_ticket_key(), None, sender, [],
+            ts(day, f"{rng.randrange(8, 18):02d}:{rng.randrange(0, 60):02d}:{rng.randrange(0, 60):02d}"),
+            text,
+        ))
     return out
 
 
@@ -226,136 +327,59 @@ def build_corpus() -> tuple[list[dict], dict]:
     world = build_world()
 
     gold: list[dict] = []
-    for spec in N.GOLD + N.CONFLICT + N.SCAFFOLD + [N.SILENCE_ARTIFACT]:
-        gold.append(artifact(
-            spec["artifact_id"], spec["source"], spec["container_id"],
-            spec["parent_id"], spec["sender_id"], spec["recipients"],
-            ts(INCIDENT_DAY, spec["time"]), spec["text"],
-            prov={
-                "event_id": "evt_001",
-                "fact_ids": spec.get("carries_facts", []),
-                "hop_index": spec.get("hop_index"),
-            },
-        ))
+    for event in N.EVENTS:
+        gold.extend(_event_artifacts(event))
 
-    exhaust = build_exhaust(rng, world, TARGET_TOTAL - len(gold))
+    by_source: dict[str, int] = {}
+    for a in gold:
+        by_source[a["source"]] = by_source.get(a["source"], 0) + 1
+
+    slack_needed = max(0, SLACK_TARGET - by_source.get("slack", 0))
+    email_needed = max(0, EMAIL_TARGET - by_source.get("email", 0))
+    ticket_needed = max(0, TICKET_TARGET - by_source.get("ticket", 0))
+
+    exhaust = (
+        build_slack_exhaust(rng, world, slack_needed)
+        + build_email_exhaust(rng, world, email_needed)
+        + build_ticket_exhaust(rng, world, ticket_needed)
+    )
     everything = sorted(gold + exhaust, key=lambda a: (a["ts"], a["artifact_id"]))
     return everything, world
 
 
 def build_answer_key(artifacts: list[dict]) -> dict:
-    """Six questions: 3 multi-hop, 1 silence, 1 conflict, 1 abstention."""
+    by_id = {a["artifact_id"]: a for a in artifacts}
+
+    fact_placement = {}
+    for event in N.EVENTS:
+        placement = {}
+        for fid in event["facts"]:
+            placement[fid] = [
+                a["artifact_id"] for a in artifacts
+                if a.get("_prov", {}).get("event_id") == event["event_id"]
+                and fid in a.get("_prov", {}).get("fact_ids", [])
+            ]
+        fact_placement[event["event_id"]] = placement
+
+    conflicts = [event["conflict"]["pair"] for event in N.EVENTS if event.get("conflict")]
+    silence_pairs = [event["silence"]["pair"] for event in N.EVENTS if event.get("silence")]
+
     return {
         "generated_by": "synthetic/bootstrap/generate.py",
         "seed": SEED,
-        "event": {
-            "event_id": "evt_001",
-            "day": INCIDENT_DAY,
-            "type": "incident",
-            "severity": 2,
-            "project": "PROJ_AEGIS",
-            "primary_owner": "EMP_082",
-            "impacted": ["svc_bill", "svc_checkout", "CUST_991"],
-            "facts": N.FACTS,
-        },
-        "fact_placement": {
-            fid: [a["artifact_id"] for a in artifacts
-                  if fid in a.get("_prov", {}).get("fact_ids", [])]
-            for fid in N.FACTS
-        },
-        "conflicts": [N.CONFLICT_PAIR],
-        "silence_pairs": [N.SILENCE_PAIR],
-        "questions": [
+        "events": [
             {
-                "question_id": "Q_001",
-                "type": "multi_hop",
-                "asked_as": "EMP_002",
-                "question": "Why is CS flagging churn risk on Acme?",
-                "gold_facts": ["evt_001:f3", "evt_001:f1", "evt_001:f4"],
-                "gold_artifacts": ["eml_0032", "slk_0041", "slk_0067"],
-                "min_hops": 3,
-                "vocab_disjoint_hops": 1,
-                "unanswerable_from": ["email"],
-                "acceptable_answer_contains": ["connection pool", "SLA credit", "ENG-4402"],
-                "must_not_contain": ["memory leak"],
-            },
-            {
-                "question_id": "Q_002",
-                "type": "multi_hop",
-                "asked_as": "EMP_002",
-                "question": "What is holding up the Aegis GA date?",
-                "gold_facts": ["evt_001:f5", "evt_001:f1"],
-                "gold_artifacts": ["slk_0072", "slk_0041"],
-                "min_hops": 2,
-                "vocab_disjoint_hops": 1,
-                "unanswerable_from": ["email"],
-                "acceptable_answer_contains": ["two weeks", "connection pool"],
-                "must_not_contain": ["memory leak"],
-            },
-            {
-                "question_id": "Q_003",
-                "type": "multi_hop",
-                "asked_as": "EMP_001",
-                "question": "Who actually owns svc-bill-v2, and who got paged?",
-                "gold_facts": ["evt_001:f6"],
-                "gold_artifacts": ["tkt_4402_c3", "slk_0039"],
-                "min_hops": 2,
-                "vocab_disjoint_hops": 0,
-                "unanswerable_from": ["email"],
-                "acceptable_answer_contains": ["EMP_082", "EMP_003"],
-                "must_not_contain": [],
-            },
-            {
-                "question_id": "Q_004",
-                "type": "conflict",
-                "asked_as": "EMP_001",
-                "question": "What caused the billing outage on May 14?",
-                "gold_facts": ["evt_001:f1"],
-                "gold_artifacts": ["slk_0040", "tkt_4402_c5", "slk_0041"],
-                "min_hops": 2,
-                "vocab_disjoint_hops": 0,
-                "unanswerable_from": [],
-                "acceptable_answer_contains": ["connection pool"],
-                "must_not_contain": [],
-                "expects_conflict": "cnf_001",
-                "note": ("Both positions must be surfaced. An answer that says 'memory "
-                         "leak' full stop is wrong; one that reports only the resolved "
-                         "cause without noting the superseded claim is incomplete."),
-            },
-            {
-                "question_id": "Q_005",
-                "type": "silence",
-                "asked_as": "EMP_001",
-                "question": "Is anyone about to promise Acme something we can't deliver?",
-                "gold_facts": ["evt_001:f5"],
-                "gold_artifacts": ["slk_0072", "eml_0038"],
-                "min_hops": 2,
-                "vocab_disjoint_hops": 0,
-                "unanswerable_from": ["slack"],
-                "acceptable_answer_contains": ["EMP_002", "GA"],
-                "must_not_contain": [],
-                "expects_silence_pair": "sil_001",
-            },
-            {
-                "question_id": "Q_006",
-                "type": "abstention",
-                "asked_as": "EMP_002",
-                "question": "Who signed off on the svc-auth security review?",
-                "gold_facts": [],
-                "gold_artifacts": [],
-                "min_hops": 0,
-                "vocab_disjoint_hops": 0,
-                "unanswerable_from": ["slack", "email", "ticket"],
-                "acceptable_answer_contains": [],
-                "must_not_contain": ["signed off", "approved"],
-                "expected_behaviour": "abstain",
-                "expected_referral": "EMP_011",
-                "note": ("svc-auth exists and is owned by EMP_011, but no artifact in the "
-                         "corpus mentions a security review. A confident answer here is a "
-                         "hallucination. The win condition is 'I don't have that — "
-                         "svc-auth is owned by Omar Haddad, ask him.'"),
-            },
+                "event_id": e["event_id"], "day": e["day"], "type": e["type"],
+                "severity": e["severity"], "project": e["project"],
+                "primary_owner": e["primary_owner"], "impacted": e["impacted"],
+                "facts": e["facts"],
+            }
+            for e in N.EVENTS
         ],
+        "fact_placement": fact_placement,
+        "conflicts": conflicts,
+        "silence_pairs": silence_pairs,
+        "questions": N.QUESTIONS,
     }
 
 
@@ -383,7 +407,8 @@ def main() -> None:
     print(f"\n  data/world.json: {len(world['employees'])} employees, "
           f"{len(world['channels'])} channels")
     print(f"  data/answer_key.json: {len(key['questions'])} questions, "
-          f"{len(key['conflicts'])} conflict(s), {len(key['silence_pairs'])} silence pair(s)")
+          f"{len(key['conflicts'])} conflict(s), {len(key['silence_pairs'])} silence pair(s), "
+          f"{len(key['events'])} anchor event(s)")
     print(f"  total artifacts: {len(artifacts)}")
 
 
