@@ -1,141 +1,62 @@
-"""Extract structured status updates from Slack/email messages using the Gemini API.
+"""Extract structured status updates from corpus artifacts using the Gemini API.
 
 Standalone: `python extraction.py` runs the sample messages in __main__.
 Requires GEMINI_API_KEY in a .env file (see .env.example).
 
-Uses gemini-3.6-flash, which has a free tier. Other free-tier options if you hit
-rate limits or want something lighter/older:
-    gemini-3.5-flash, gemini-3.5-flash-lite, gemini-3.1-flash-lite, gemini-2.5-flash
+Every item carries `evidence`: verbatim spans copied from the artifacts it was drawn
+from, each tagged with its artifact_id. Spans are re-checked in Python against the
+source text — an item whose span is not found is dropped, not repaired. That check is
+the only hallucination guarantee that survives a judge reading the output.
+
+The Gemini client (model fallback, retries, rate limiting, usage) lives in src/llm.py.
 """
 
 import json
-import os
 import re
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
-from dotenv import load_dotenv
-from google import genai
-from google.genai import errors, types
+from google.genai import types
 
-load_dotenv()
-
-# Free-tier daily request quotas are per-model and small (gemini-3.6-flash allows 20
-# requests/day at time of writing). Both are overridable from .env so you can switch
-# models without touching code; check your own limits at aistudio.google.com/rate-limit.
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
-FALLBACK_MODELS = [
-    m.strip()
-    for m in os.environ.get(
-        "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.5-flash-lite"
-    ).split(",")
-    if m.strip() and m.strip() != MODEL
-]
-
-MAX_RETRIES = 3
-MAX_RETRY_WAIT = 65.0  # don't sit through a multi-minute backoff mid-demo
+from src.llm import (
+    FALLBACK_MODELS,
+    MODEL,
+    LLMJSONError,
+    QuotaExhausted,
+    coerce_json,
+    generate_content,
+    require_api_key,
+    response_text,
+)
+from src.schema import normalize_ws
 
 # --- StatusItem schema -------------------------------------------------------
 
-SOURCES = ("slack", "email")
+# Corpus sources per docs/schema.md. "ticket", "doc" and "export" appear in
+# data/corpus/*.jsonl; an item may not claim a source the corpus cannot contain.
+SOURCES = ("slack", "email", "ticket", "doc", "export")
 STATUSES = ("on_track", "at_risk", "blocked", "unclear")
 CONFIDENCES = ("high", "medium", "low")
 
-FIELDS = ("source", "topic", "status", "owner", "blocker", "confidence")
+FIELDS = ("source", "topic", "status", "owner", "blocker", "confidence", "evidence")
 
 
 @dataclass
 class StatusItem:
-    source: str  # "slack" | "email"
+    source: str  # "slack" | "email" | "ticket" | "doc" | "export"
     topic: str  # inferred project/team name
     status: str  # "on_track" | "at_risk" | "blocked" | "unclear"
     owner: str | None
     blocker: str | None
     confidence: str  # "high" | "medium" | "low"
+    # [{"artifact_id": "slk_0041", "span": "verbatim quote"}] — >=1 required.
+    # docs/schema.md: no evidence -> discard the item, that's a hallucination.
+    evidence: list[dict] = field(default_factory=list)
 
 
 class ExtractionError(RuntimeError):
     """Raised when the model's output can't be parsed or doesn't match the schema."""
-
-
-class QuotaExhausted(RuntimeError):
-    """Every candidate model hit its rate limit."""
-
-
-def _is_rate_limit(error: Exception) -> bool:
-    return isinstance(error, errors.ClientError) and getattr(error, "code", None) == 429
-
-
-def _is_daily_quota(error: Exception) -> bool:
-    """Daily caps don't recover in seconds — fall straight through to another model."""
-    return "PerDay" in str(getattr(error, "details", "") or "") or "per day" in str(error).lower()
-
-
-def _retry_delay(error: Exception, default: float = 5.0) -> float:
-    match = re.search(r"retry in ([0-9.]+)s", str(error), re.IGNORECASE)
-    if not match:
-        match = re.search(r"'retryDelay': '([0-9.]+)s'", str(error))
-    return min(float(match.group(1)) + 1 if match else default, MAX_RETRY_WAIT)
-
-
-def generate_content(contents: Any, config: Any, models: list[str] | None = None) -> Any:
-    """Call Gemini, retrying transient rate limits and falling back across models.
-
-    A per-minute limit is waited out; a per-day quota is not (it won't clear in time),
-    so we move to the next model immediately. This is what keeps a live demo alive
-    when the primary model's free-tier daily allowance runs out mid-run.
-    """
-    client = genai.Client(api_key=require_api_key())
-    candidates = models or [MODEL, *FALLBACK_MODELS]
-    last_error: Exception | None = None
-
-    for model in candidates:
-        for attempt in range(MAX_RETRIES):
-            try:
-                return client.models.generate_content(
-                    model=model, contents=contents, config=config
-                )
-            except Exception as e:  # noqa: BLE001 - re-raised below unless retryable
-                if not _is_rate_limit(e):
-                    raise
-                last_error = e
-                if _is_daily_quota(e) or attempt == MAX_RETRIES - 1:
-                    if len(candidates) > 1:
-                        print(f"[gemini] {model} rate-limited; trying next model...")
-                    break
-                delay = _retry_delay(e)
-                print(f"[gemini] {model} rate-limited; retrying in {delay:.0f}s...")
-                time.sleep(delay)
-
-    raise QuotaExhausted(
-        f"All models rate-limited ({', '.join(candidates)}). "
-        f"Check your limits at https://aistudio.google.com/rate-limit or set "
-        f"GEMINI_MODEL in .env. Last error: {last_error}"
-    )
-
-
-def require_api_key() -> str:
-    """Return the Gemini API key, or explain precisely what's wrong with it.
-
-    Catches the common case of .env still holding the .env.example placeholder,
-    which is non-empty and would otherwise fail later as an opaque auth error.
-    """
-    key = (os.environ.get("GEMINI_API_KEY") or "").strip()
-
-    if not key:
-        raise RuntimeError(
-            "GEMINI_API_KEY is not set. Copy .env.example to .env and fill in your key "
-            "(get one free at https://aistudio.google.com/apikey)."
-        )
-    if key.startswith("your-") or key == "your-gemini-api-key":
-        raise RuntimeError(
-            "GEMINI_API_KEY is still the placeholder from .env.example. Open .env and "
-            "replace 'your-gemini-api-key' with your real key "
-            "(get one free at https://aistudio.google.com/apikey)."
-        )
-    return key
 
 
 # JSON Schema handed to Gemini so the response is constrained server-side.
@@ -154,6 +75,19 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                     "owner": {"type": ["string", "null"]},
                     "blocker": {"type": ["string", "null"]},
                     "confidence": {"type": "string", "enum": list(CONFIDENCES)},
+                    "evidence": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "artifact_id": {"type": "string"},
+                                "span": {"type": "string"},
+                            },
+                            "required": ["artifact_id", "span"],
+                            "additionalProperties": False,
+                        },
+                    },
                 },
                 "required": list(FIELDS),
                 "additionalProperties": False,
@@ -168,10 +102,12 @@ RESPONSE_SCHEMA: dict[str, Any] = {
 # --- Prompt ------------------------------------------------------------------
 
 SYSTEM_PROMPT = f"""You extract structured status updates from workplace messages \
-(Slack and email) for a company-wide operations briefing.
+(Slack, email, tickets) for a company-wide operations briefing.
+
+Every message is labelled with an artifact id like [slk_0041]. You must cite them.
 
 Return a JSON object of the form {{"items": [...]}}, where each item has exactly \
-these six keys:
+these seven keys:
 - source: {" or ".join(json.dumps(s) for s in SOURCES)}. Copy it from the message the item came from.
 - topic: short inferred project or team name, e.g. "Billing migration", "Mobile app". \
 Title case, no trailing punctuation. Never null.
@@ -184,8 +120,19 @@ delay, a lost buffer, a dependency). Use null only when genuinely nothing is imp
 progress, which should be the normal case for "on_track" items.
 - confidence: one of {", ".join(json.dumps(c) for c in CONFIDENCES)} — how confident you are \
 that this item accurately reflects a real status signal.
+- evidence: a non-empty list of {{"artifact_id": ..., "span": ...}}. The artifact_id is \
+the id in square brackets on the message. The span is a SHORT quote (one clause or \
+sentence, under 200 characters) copied CHARACTER FOR CHARACTER out of that message's \
+text. Do not paraphrase it, do not fix its typos, do not expand its abbreviations, do \
+not add the square-bracket label or the "source=" header line to it. Cite one span per \
+message that genuinely supports the item — usually one or two, and every message you \
+merged into the item.
 
 Extraction rules:
+0. EVERY item needs at least one evidence span that appears verbatim in the message you \
+took it from. Spans are checked against the source text in code after you answer, and \
+an item whose span cannot be found is thrown away — so a paraphrased span costs you the \
+whole item. If you cannot quote it, do not claim it.
 1. Emit one item per distinct project/topic. If several messages discuss the same project, \
 merge them into a single item rather than emitting duplicates. Messages are listed in \
 chronological order, and THE MOST RECENT MESSAGE WINS for status, owner, and blocker — \
@@ -208,8 +155,20 @@ Confidence calibration:
 - "low": you are reading between the lines, or key fields came out null/"unclear"."""
 
 
+def _artifact_id(msg: dict, index: int) -> str:
+    """The id the model must cite. Falls back to a positional id for fixture messages."""
+    value = msg.get("artifact_id")
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return f"msg_{index}"
+
+
 def _format_messages(messages: list[dict]) -> str:
-    """Render the raw messages into a numbered block for the model."""
+    """Render the raw messages into a labelled block for the model.
+
+    The label is the artifact_id, not a counter — that is what the model cites and what
+    the span check keys on, so it has to be the real id from the corpus.
+    """
     if not isinstance(messages, list):
         raise TypeError(f"messages must be a list, got {type(messages).__name__}")
 
@@ -219,8 +178,8 @@ def _format_messages(messages: list[dict]) -> str:
         if missing:
             raise ValueError(f"message {i} is missing required key(s): {', '.join(missing)}")
         blocks.append(
-            f"[{i}] source={msg['source']} | sender={msg['sender']} | timestamp={msg['timestamp']}\n"
-            f"{msg['text']}"
+            f"[{_artifact_id(msg, i)}] source={msg['source']} | sender={msg['sender']} "
+            f"| timestamp={msg['timestamp']}\n{msg['text']}"
         )
     return "\n\n".join(blocks)
 
@@ -230,33 +189,19 @@ def _format_messages(messages: list[dict]) -> str:
 
 def _response_text(response: Any) -> str:
     """Pull the text out of the response, failing loudly if the model returned nothing."""
-    text = (response.text or "").strip()
-    if text:
-        return text
-
-    # Empty response: surface whatever the API said about why.
-    reason = "unknown"
-    candidates = getattr(response, "candidates", None)
-    if candidates:
-        reason = f"finish_reason={getattr(candidates[0], 'finish_reason', None)}"
-    feedback = getattr(response, "prompt_feedback", None)
-    if feedback is not None:
-        reason += f", prompt_feedback={feedback}"
-    raise ExtractionError(f"Model returned no text ({reason}).")
+    try:
+        return response_text(response, label="extraction")
+    except Exception as e:  # normalize to this module's error type for callers
+        raise ExtractionError(str(e)) from e
 
 
 def _parse_json(raw: str) -> Any:
-    """Parse the model's JSON, tolerating markdown fences but nothing else."""
-    text = raw.strip()
-    if text.startswith("```"):
-        # ```json\n{...}\n```  ->  {...}
-        text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-
+    """Parse the model's JSON. Delegates to the shared coercion in src/llm.py."""
     try:
-        return json.loads(text)
-    except json.JSONDecodeError as e:
+        return coerce_json(raw)
+    except LLMJSONError as e:
         raise ExtractionError(
-            f"Model output was not valid JSON ({e}). First 300 chars:\n{raw[:300]}"
+            f"Model output was not valid JSON ({e}). First 300 chars:\n{e.raw_text[:300]}"
         ) from e
 
 
@@ -283,14 +228,14 @@ def _validate_item(obj: Any, index: int) -> StatusItem:
     if not isinstance(obj["topic"], str) or not obj["topic"].strip():
         raise ExtractionError(f"{where}.topic: expected a non-empty string, got {obj['topic']!r}")
 
-    for field in ("owner", "blocker"):
-        value = obj[field]
+    for key in ("owner", "blocker"):
+        value = obj[key]
         if value is not None and not isinstance(value, str):
             raise ExtractionError(
-                f"{where}.{field}: expected a string or null, got {type(value).__name__}"
+                f"{where}.{key}: expected a string or null, got {type(value).__name__}"
             )
         if isinstance(value, str) and not value.strip():
-            raise ExtractionError(f"{where}.{field}: empty string — use null instead")
+            raise ExtractionError(f"{where}.{key}: empty string — use null instead")
 
     return StatusItem(
         source=obj["source"],
@@ -299,7 +244,32 @@ def _validate_item(obj: Any, index: int) -> StatusItem:
         owner=obj["owner"],
         blocker=obj["blocker"],
         confidence=obj["confidence"],
+        evidence=_validate_evidence(obj["evidence"], where),
     )
+
+
+def _validate_evidence(raw: Any, where: str) -> list[dict]:
+    """Shape check on the evidence array. The substring check is separate, below."""
+    if not isinstance(raw, list) or not raw:
+        raise ExtractionError(
+            f"{where}.evidence: expected a non-empty list of "
+            f"{{artifact_id, span}}, got {raw!r} — an item with no evidence is a "
+            f"hallucination by definition (docs/schema.md)"
+        )
+
+    evidence = []
+    for i, entry in enumerate(raw):
+        at = f"{where}.evidence[{i}]"
+        if not isinstance(entry, dict):
+            raise ExtractionError(f"{at}: expected an object, got {type(entry).__name__}")
+        artifact_id = entry.get("artifact_id")
+        span = entry.get("span")
+        if not isinstance(artifact_id, str) or not artifact_id.strip():
+            raise ExtractionError(f"{at}.artifact_id: expected a non-empty string")
+        if not isinstance(span, str) or not span.strip():
+            raise ExtractionError(f"{at}.span: expected a non-empty verbatim quote")
+        evidence.append({"artifact_id": artifact_id.strip(), "span": span})
+    return evidence
 
 
 def _validate_payload(payload: Any) -> list[StatusItem]:
@@ -340,14 +310,67 @@ def _call_model(contents: str) -> str:
     return _response_text(response)
 
 
-def extract(messages: list[dict]) -> list[dict]:
-    """Extract StatusItems from raw messages.
+def check_evidence_spans(
+    items: list[dict], messages: list[dict]
+) -> tuple[list[dict], list[str]]:
+    """Drop any item whose evidence is not literally present in its source artifact.
+
+    Exact substring match after whitespace normalization — not fuzzy, not LLM-judged.
+    An item citing an artifact that wasn't in the batch, or quoting words the artifact
+    never contained, is a hallucination and is discarded rather than repaired.
+
+    Returns (kept_items, drop_reasons). The reasons are printed, not swallowed.
+    """
+    texts = {
+        _artifact_id(msg, i): normalize_ws(str(msg.get("text", "")))
+        for i, msg in enumerate(messages, start=1)
+    }
+
+    kept: list[dict] = []
+    dropped: list[str] = []
+
+    for item in items:
+        verified = []
+        problems = []
+        for entry in item.get("evidence", []):
+            artifact_id = entry["artifact_id"]
+            span = normalize_ws(entry["span"])
+            source_text = texts.get(artifact_id)
+            if source_text is None:
+                problems.append(f"cites {artifact_id}, which was not in this batch")
+                continue
+            if span not in source_text:
+                problems.append(f"span not found in {artifact_id}: {entry['span'][:60]!r}")
+                continue
+            verified.append(entry)
+
+        if verified:
+            item = dict(item, evidence=verified)
+            kept.append(item)
+            # Partial failure still loses the bad spans, and we say so.
+            for problem in problems:
+                dropped.append(f"dropped evidence from item {item['topic']!r}: {problem}")
+        else:
+            dropped.append(
+                f"dropped hallucinated item {item.get('topic')!r}: "
+                + "; ".join(problems or ["no evidence at all"])
+            )
+
+    return kept, dropped
+
+
+def extract(messages: list[dict], verify: bool = True) -> list[dict]:
+    """Extract StatusItems from raw artifacts.
 
     Args:
-        messages: dicts with keys {source, sender, timestamp, text}.
+        messages: dicts with keys {source, sender, timestamp, text} and, for corpus
+            artifacts, artifact_id. The artifact_id is what the model cites.
+        verify: run the evidence-span substring check. Only ever False in tests that
+            are exercising something else.
 
     Returns:
-        A list of StatusItem dicts. Empty if no message carried status content.
+        A list of StatusItem dicts, each carrying verified evidence. Empty if no
+        message carried status content.
 
     Raises:
         ExtractionError: the model's output was unparseable or off-schema.
@@ -359,8 +382,17 @@ def extract(messages: list[dict]) -> list[dict]:
         f"Extract status items from these {len(messages)} message(s).\n\n"
         f"{_format_messages(messages)}"
     )
-    items = _validate_payload(_parse_json(raw))
-    return [asdict(item) for item in items]
+    items = [asdict(item) for item in _validate_payload(_parse_json(raw))]
+
+    if not verify:
+        return items
+
+    kept, dropped = check_evidence_spans(items, messages)
+    if dropped:
+        print(f"[extraction] {len(dropped)} evidence check failure(s):")
+        for reason in dropped:
+            print(f"  - {reason}")
+    return kept
 
 
 # --- Batch extraction at scale ----------------------------------------------
@@ -378,6 +410,20 @@ def _merge_key(topic: str) -> str:
     cleaned = re.sub(r"[^a-z0-9 ]+", " ", topic.lower())
     tokens = [t for t in cleaned.split() if t not in ("the", "a", "an", "project", "team")]
     return " ".join(sorted(tokens)) or topic.lower().strip()
+
+
+def _union_evidence(*groups: list[dict]) -> list[dict]:
+    """Combine evidence lists, deduping on (artifact_id, normalized span)."""
+    seen: set[tuple[str, str]] = set()
+    combined: list[dict] = []
+    for group in groups:
+        for entry in group or []:
+            key = (entry.get("artifact_id", ""), normalize_ws(entry.get("span", "")))
+            if key in seen:
+                continue
+            seen.add(key)
+            combined.append(entry)
+    return combined
 
 
 def merge_items(items: list[dict]) -> list[dict]:
@@ -406,6 +452,11 @@ def merge_items(items: list[dict]) -> list[dict]:
         # Never drop a known owner or blocker just because the winning read lacked one.
         winner["owner"] = winner["owner"] or loser["owner"]
         winner["blocker"] = winner["blocker"] or loser["blocker"]
+        # Evidence is unioned, never replaced: the losing read still saw real artifacts,
+        # and dropping its spans would silently narrow what the answer can cite.
+        winner["evidence"] = _union_evidence(
+            winner.get("evidence", []), loser.get("evidence", [])
+        )
         merged[key] = winner
 
     return list(merged.values())

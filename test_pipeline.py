@@ -25,6 +25,7 @@ import orchestrator
 import output
 import store as store_mod
 import synthesis
+import src.llm as llm
 
 load_dotenv()
 
@@ -82,6 +83,10 @@ def expect_raises(exc_type, fn, contains: str | None = None) -> None:
 
 # --- Fake model responses ----------------------------------------------------
 
+# Spans below are copied verbatim out of sample_data/messages.json. They have to be:
+# extract() re-checks every span against the source text and discards items whose
+# quote isn't there, so a fake that paraphrases would be dropped exactly like a real
+# hallucination would.
 FAKE_ITEMS = {
     "items": [
         {
@@ -91,6 +96,12 @@ FAKE_ITEMS = {
             "owner": "Marcus",
             "blocker": "Legal sign-off pending on the data retention change",
             "confidence": "high",
+            "evidence": [
+                {
+                    "artifact_id": "msg_1",
+                    "span": "Nothing moves until legal signs off on the data retention change",
+                }
+            ],
         },
         {
             "source": "email",
@@ -99,6 +110,12 @@ FAKE_ITEMS = {
             "owner": "Dan",
             "blocker": None,
             "confidence": "high",
+            "evidence": [
+                {
+                    "artifact_id": "msg_2",
+                    "span": "we're on schedule to ship to TestFlight next Wednesday",
+                }
+            ],
         },
         {
             "source": "slack",
@@ -107,6 +124,12 @@ FAKE_ITEMS = {
             "owner": None,
             "blocker": None,
             "confidence": "low",
+            "evidence": [
+                {
+                    "artifact_id": "msg_4",
+                    "span": "kind of a mess right now, still digging into it",
+                }
+            ],
         },
     ]
 }
@@ -308,19 +331,29 @@ def test_extraction_validator_accepts_good_payload():
 
 
 def test_extraction_validator_rejects_bad_payloads():
+    ev = '"evidence":[{"artifact_id":"msg_1","span":"x"}]'
     cases = [
         ('{"items":[{"source":"teams","topic":"X","status":"on_track","owner":null,'
-         '"blocker":null,"confidence":"high"}]}', "expected one of"),
+         '"blocker":null,"confidence":"high",' + ev + '}]}', "expected one of"),
         ('{"items":[{"topic":"X","status":"on_track","owner":null,"blocker":null,'
-         '"confidence":"high"}]}', "missing field"),
+         '"confidence":"high",' + ev + '}]}', "missing field"),
         ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
-         '"blocker":null,"confidence":"high","eta":"fri"}]}', "unexpected field"),
+         '"blocker":null,"confidence":"high",' + ev + ',"eta":"fri"}]}', "unexpected field"),
         ('{"items":[{"source":"slack","topic":"","status":"on_track","owner":null,'
-         '"blocker":null,"confidence":"high"}]}', "non-empty string"),
+         '"blocker":null,"confidence":"high",' + ev + '}]}', "non-empty string"),
         ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":7,'
-         '"blocker":null,"confidence":"high"}]}', "string or null"),
+         '"blocker":null,"confidence":"high",' + ev + '}]}', "string or null"),
         ("[]", "Expected a JSON object"),
         ("not json", "not valid JSON"),
+        # An item with no evidence is a hallucination by definition (docs/schema.md).
+        ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
+         '"blocker":null,"confidence":"high","evidence":[]}]}', "non-empty list"),
+        ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
+         '"blocker":null,"confidence":"high","evidence":[{"artifact_id":"msg_1"}]}]}',
+         "non-empty verbatim quote"),
+        ('{"items":[{"source":"slack","topic":"X","status":"on_track","owner":null,'
+         '"blocker":null,"confidence":"high","evidence":[{"span":"x"}]}]}',
+         "artifact_id: expected a non-empty string"),
     ]
     for raw, expected in cases:
         expect_raises(
@@ -693,9 +726,15 @@ class _FakeQuotaError(Exception):
 
 
 def _patch_rate_limit_detection():
-    """Treat _FakeQuotaError as a 429 for the duration of a test."""
-    saved = extraction._is_rate_limit
-    extraction._is_rate_limit = lambda e: getattr(e, "code", None) == 429
+    """Treat _FakeQuotaError as a 429 for the duration of a test.
+
+    Also drops the cached client so a patched genai.Client is actually used, and
+    guarantees a key is present since get_client() checks before dialling out.
+    """
+    os.environ.setdefault("GEMINI_API_KEY", "offline-test-key")
+    llm._client = None
+    saved = llm._is_rate_limit
+    llm._is_rate_limit = lambda e: getattr(e, "code", None) == 429
     return saved
 
 
@@ -713,28 +752,29 @@ def test_daily_quota_falls_through_to_next_model():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = extraction.generate_content(
+            result = llm.generate_content(
                 "hi", None, models=["model-a", "model-b", "model-c"]
             )
         assert result == "ok", result
         assert tried == ["model-a", "model-b", "model-c"], tried
         assert "trying next model" in buf.getvalue()
     finally:
-        extraction.genai.Client = saved_client
-        extraction._is_rate_limit = saved
+        llm.genai.Client = saved_client
+        llm._is_rate_limit = saved
+        llm._client = None
 
 
 def test_daily_quota_does_not_sleep():
     """A per-day cap won't clear in seconds — retrying the same model wastes the demo."""
     saved = _patch_rate_limit_detection()
     slept: list[float] = []
-    saved_sleep = extraction.time.sleep
-    extraction.time.sleep = lambda s: slept.append(s)
+    saved_sleep = llm.time.sleep
+    llm.time.sleep = lambda s: slept.append(s)
 
     calls: list[str] = []
 
@@ -746,29 +786,30 @@ def test_daily_quota_does_not_sleep():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
             expect_raises(
-                extraction.QuotaExhausted,
-                lambda: extraction.generate_content("hi", None, models=["a", "b"]),
+                llm.QuotaExhausted,
+                lambda: llm.generate_content("hi", None, models=["a", "b"]),
                 contains="All models rate-limited",
             )
         assert slept == [], f"should not sleep on a daily quota, slept {slept}"
         assert calls == ["a", "b"], calls
     finally:
-        extraction.genai.Client = saved_client
-        extraction.time.sleep = saved_sleep
-        extraction._is_rate_limit = saved
+        llm.genai.Client = saved_client
+        llm.time.sleep = saved_sleep
+        llm._is_rate_limit = saved
+        llm._client = None
 
 
 def test_per_minute_limit_is_retried_after_the_stated_delay():
     saved = _patch_rate_limit_detection()
     slept: list[float] = []
-    saved_sleep = extraction.time.sleep
-    extraction.time.sleep = lambda s: slept.append(s)
+    saved_sleep = llm.time.sleep
+    llm.time.sleep = lambda s: slept.append(s)
 
     attempts = {"n": 0}
 
@@ -782,18 +823,19 @@ def test_per_minute_limit_is_retried_after_the_stated_delay():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         buf = io.StringIO()
         with redirect_stdout(buf):
-            result = extraction.generate_content("hi", None, models=["a"])
+            result = llm.generate_content("hi", None, models=["a"])
         assert result == "ok"
         assert slept and 13 <= slept[0] <= 14, f"should honour the stated delay, got {slept}"
     finally:
-        extraction.genai.Client = saved_client
-        extraction.time.sleep = saved_sleep
-        extraction._is_rate_limit = saved
+        llm.genai.Client = saved_client
+        llm.time.sleep = saved_sleep
+        llm._is_rate_limit = saved
+        llm._client = None
 
 
 def test_non_rate_limit_errors_are_not_retried():
@@ -807,17 +849,17 @@ def test_non_rate_limit_errors_are_not_retried():
     class FakeClient:
         models = FakeModels()
 
-    saved_client = extraction.genai.Client
-    extraction.genai.Client = lambda **kw: FakeClient()
+    saved_client = llm.genai.Client
+    llm.genai.Client = lambda **kw: FakeClient()
     try:
         expect_raises(
             ValueError,
-            lambda: extraction.generate_content("hi", None, models=["a", "b"]),
+            lambda: llm.generate_content("hi", None, models=["a", "b"]),
             contains="bad request",
         )
         assert calls["n"] == 1, f"a non-429 must fail fast, got {calls['n']} attempts"
     finally:
-        extraction.genai.Client = saved_client
+        llm.genai.Client = saved_client
 
 
 # --- End to end --------------------------------------------------------------

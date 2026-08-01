@@ -1,8 +1,12 @@
 """The one Gemini client. Real calls only — there is no offline/mock path by design.
 
-Free tier: gemini-2.5-flash for both extraction and answering. The binding constraint is
-the free tier's requests-per-minute cap, not cost, so this module owns a process-wide
-rate limiter (extract.py calls in parallel) and a usage counter that prints at end of run.
+Merged from two implementations: the model-fallback chain and daily-quota detection
+that came in with the root pipeline (the thing most likely to save a live run when a
+free-tier daily allowance runs out mid-demo), plus the process-wide RPM limiter, JSON
+coercion and usage accounting from the spine.
+
+Everything that talks to Gemini goes through `generate_content` here — extraction.py,
+store.py and agent.py all import it, so there is one retry policy and one usage total.
 """
 from __future__ import annotations
 
@@ -21,25 +25,42 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import errors, types
 
-# BUILD_PLAN named gemini-2.5-flash; that model now 404s for new API keys
-# ("no longer available to new users"). gemini-3.5-flash is the current free-tier flash
-# and answers in ~1s. Pinned deliberately rather than using the gemini-flash-latest
-# alias — the demo must not change model under us mid-hackathon.
-MODEL = "gemini-3.5-flash"
-DEFAULT_TIMEOUT_S = 60.0
-MAX_ATTEMPTS = 4
-# Free-tier RPM for the flash tier. Override with GEMINI_RPM if the key is on a
-# paid tier; leaving it at the free-tier number just makes us slower, never wrong.
-DEFAULT_RPM = 10
-RETRYABLE_CODES = {408, 429, 500, 502, 503, 504}
+load_dotenv()
 
-_ENV_LOADED = False
+# Free-tier daily request quotas are per-model and small. Overridable from .env so you
+# can switch models without touching code; check your limits at aistudio.google.com/rate-limit.
+#
+# Verified against a live key on 2026-08-01: gemini-3.6-flash ~2.0s, gemini-3.5-flash
+# ~1.0s, gemini-3.1-flash-lite ~0.5s. gemini-2.5-flash now returns 404 "no longer
+# available to new users" and gemini-2.0-flash 429s, so neither is a usable fallback.
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
+FALLBACK_MODELS = [
+    m.strip()
+    for m in os.environ.get(
+        "GEMINI_FALLBACK_MODELS", "gemini-3.5-flash,gemini-3.1-flash-lite"
+    ).split(",")
+    if m.strip() and m.strip() != MODEL
+]
+
+EMBED_MODEL = "gemini-embedding-001"
+
+MAX_RETRIES = 3
+MAX_RETRY_WAIT = 65.0        # don't sit through a multi-minute backoff mid-demo
+DEFAULT_TIMEOUT_S = 60.0
+# Free-tier requests per minute. Leaving this at the free-tier number only makes us
+# slower, never wrong. Override with GEMINI_RPM if the key is on a paid tier.
+DEFAULT_RPM = int(os.environ.get("GEMINI_RPM", "10"))
+
 _client: Optional[genai.Client] = None
 _client_lock = threading.Lock()
 
 
 class LLMError(RuntimeError):
-    """A call failed after exhausting retries."""
+    """A call failed and no model could serve it."""
+
+
+class QuotaExhausted(LLMError):
+    """Every candidate model hit its rate limit."""
 
 
 class LLMJSONError(ValueError):
@@ -56,7 +77,7 @@ class LLMJSONError(ValueError):
 # ------------------------------------------------------------------ rate limiting
 
 class _RateLimiter:
-    """Sliding-window RPM gate. Thread-safe: extract.py batches run in parallel."""
+    """Sliding-window RPM gate. Thread-safe: extraction runs chunks in parallel."""
 
     def __init__(self, rpm: int):
         self.rpm = max(1, rpm)
@@ -83,7 +104,7 @@ class _RateLimiter:
                 self.total_wait_s += sleep_for
 
 
-_limiter = _RateLimiter(int(os.environ.get("GEMINI_RPM", DEFAULT_RPM)))
+_limiter = _RateLimiter(DEFAULT_RPM)
 
 
 # ------------------------------------------------------------------------- usage
@@ -94,6 +115,7 @@ class _Usage:
         self.calls = 0
         self.retries = 0
         self.failures = 0
+        self.fallbacks = 0
         self.input_tokens = 0
         self.output_tokens = 0
         self.api_seconds = 0.0
@@ -115,143 +137,166 @@ usage = _Usage()
 
 
 def report() -> str:
-    """One line of ugly numbers for the end of a run. Printed in the demo."""
+    """One line of ugly numbers for the end of a run. Printed by the pipeline."""
     return (
-        f"llm: {usage.calls} calls, {usage.retries} retries, {usage.failures} failed | "
-        f"tokens in/out: {usage.input_tokens}/{usage.output_tokens} | "
-        f"api time: {usage.api_seconds:.1f}s, rate-limit wait: {_limiter.total_wait_s:.1f}s | "
-        f"cost: $0.00 (Gemini free tier, {MODEL})"
+        f"llm: {usage.calls} calls, {usage.retries} retries, {usage.fallbacks} model "
+        f"fallbacks, {usage.failures} failed | tokens in/out: "
+        f"{usage.input_tokens}/{usage.output_tokens} | api time: {usage.api_seconds:.1f}s, "
+        f"rate-limit wait: {_limiter.total_wait_s:.1f}s | cost: $0.00 (Gemini free tier)"
     )
 
 
 # ------------------------------------------------------------------------ client
 
+def require_api_key() -> str:
+    """Return the Gemini API key, or explain precisely what's wrong with it.
+
+    Catches the common case of .env still holding the .env.example placeholder,
+    which is non-empty and would otherwise fail later as an opaque auth error.
+    """
+    key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not key:
+        raise LLMError(
+            "GEMINI_API_KEY is not set. Copy .env.example to .env and fill in your key "
+            "(get one free at https://aistudio.google.com/apikey). There is no offline "
+            "fallback — every LLM call in this pipeline is real."
+        )
+    if key.startswith("your-") or key == "your-gemini-api-key":
+        raise LLMError(
+            "GEMINI_API_KEY is still the placeholder from .env.example. Open .env and "
+            "replace 'your-gemini-api-key' with your real key "
+            "(get one free at https://aistudio.google.com/apikey)."
+        )
+    return key
+
+
 def get_client() -> genai.Client:
-    """Build the shared client. Fails loud and specific if the key is absent."""
-    global _client, _ENV_LOADED
+    global _client
     with _client_lock:
-        if not _ENV_LOADED:
-            load_dotenv()
-            _ENV_LOADED = True
         if _client is None:
-            api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-            if not api_key:
-                raise LLMError(
-                    "GEMINI_API_KEY is not set. Put it in the .env file at the repo root "
-                    "(GEMINI_API_KEY=...) or export it in the shell. "
-                    "There is no offline fallback — every LLM call in this pipeline is real."
-                )
             _client = genai.Client(
-                api_key=api_key,
+                api_key=require_api_key(),
                 http_options=types.HttpOptions(timeout=int(DEFAULT_TIMEOUT_S * 1000)),
             )
         return _client
 
 
-def _retry_delay_from(exc: Exception) -> Optional[float]:
-    """Honor the server's own RetryInfo when it sends one."""
-    blob = getattr(exc, "details", None)
-    text = json.dumps(blob) if blob is not None else str(exc)
-    match = re.search(r'"?retryDelay"?[:=\s"]+(\d+(?:\.\d+)?)s', text)
-    if match:
-        return float(match.group(1))
-    return None
+def _is_rate_limit(error: Exception) -> bool:
+    return isinstance(error, errors.ClientError) and getattr(error, "code", None) == 429
 
 
-def _status_code(exc: Exception) -> Optional[int]:
-    code = getattr(exc, "code", None)
-    if isinstance(code, int):
-        return code
-    status = getattr(exc, "status", None)
-    if isinstance(status, int):
-        return status
-    return None
+def _is_daily_quota(error: Exception) -> bool:
+    """Daily caps don't recover in seconds — fall straight through to another model."""
+    details = str(getattr(error, "details", "") or "")
+    return "PerDay" in details or "per day" in str(error).lower()
+
+
+def _is_retryable_server_error(error: Exception) -> bool:
+    code = getattr(error, "code", None)
+    return isinstance(error, errors.APIError) and code in (408, 500, 502, 503, 504)
+
+
+def _retry_delay(error: Exception, default: float = 5.0) -> float:
+    match = re.search(r"retry in ([0-9.]+)s", str(error), re.IGNORECASE)
+    if not match:
+        match = re.search(r"'retryDelay': '([0-9.]+)s'", str(error))
+    return min(float(match.group(1)) + 1 if match else default, MAX_RETRY_WAIT)
+
+
+def generate_content(contents: Any, config: Any, models: Optional[List[str]] = None) -> Any:
+    """Call Gemini, retrying transient rate limits and falling back across models.
+
+    A per-minute limit is waited out; a per-day quota is not (it won't clear in time),
+    so we move to the next model immediately. This is what keeps a live demo alive
+    when the primary model's free-tier daily allowance runs out mid-run.
+    """
+    client = get_client()
+    candidates = models or [MODEL, *FALLBACK_MODELS]
+    last_error: Optional[Exception] = None
+
+    for model_index, model in enumerate(candidates):
+        if model_index > 0:
+            with usage.lock:
+                usage.fallbacks += 1
+        for attempt in range(MAX_RETRIES):
+            _limiter.acquire()
+            started = time.monotonic()
+            try:
+                response = client.models.generate_content(
+                    model=model, contents=contents, config=config
+                )
+            except Exception as e:  # noqa: BLE001 - re-raised below unless retryable
+                last_error = e
+                if _is_rate_limit(e):
+                    if _is_daily_quota(e) or attempt == MAX_RETRIES - 1:
+                        if len(candidates) > 1:
+                            print(f"[llm] {model} rate-limited; trying next model...")
+                        break
+                    delay = _retry_delay(e)
+                    with usage.lock:
+                        usage.retries += 1
+                    print(f"[llm] {model} rate-limited; retrying in {delay:.0f}s...")
+                    time.sleep(delay)
+                    continue
+                if _is_retryable_server_error(e) and attempt < MAX_RETRIES - 1:
+                    delay = min(2.0 ** (attempt + 1) + random.uniform(0, 1), MAX_RETRY_WAIT)
+                    with usage.lock:
+                        usage.retries += 1
+                    print(
+                        f"[llm] {model} returned HTTP {getattr(e, 'code', '?')} in "
+                        f"{time.monotonic() - started:.1f}s; retrying in {delay:.0f}s...",
+                        file=sys.stderr,
+                    )
+                    time.sleep(delay)
+                    continue
+                with usage.lock:
+                    usage.failures += 1
+                raise
+
+            usage.record(response, time.monotonic() - started)
+            return response
+
+    with usage.lock:
+        usage.failures += 1
+    raise QuotaExhausted(
+        f"All models rate-limited ({', '.join(candidates)}). "
+        f"Check your limits at https://aistudio.google.com/rate-limit or set "
+        f"GEMINI_MODEL in .env. Last error: {last_error}"
+    )
+
+
+def response_text(response: Any, label: str = "call") -> str:
+    """Pull text out of a response, failing loudly with the API's own reason."""
+    text = (getattr(response, "text", None) or "").strip()
+    if text:
+        return text
+    reason = "unknown"
+    candidates = getattr(response, "candidates", None)
+    if candidates:
+        reason = f"finish_reason={getattr(candidates[0], 'finish_reason', None)}"
+    feedback = getattr(response, "prompt_feedback", None)
+    if feedback is not None:
+        reason += f", prompt_feedback={feedback}"
+    raise LLMError(f"{label}: model returned no text ({reason}).")
 
 
 def generate(
     prompt: str,
     *,
     system: Optional[str] = None,
-    model: str = MODEL,
-    temperature: float = 0.0,
+    temperature: Optional[float] = None,
     json_mode: bool = False,
     timeout_s: float = DEFAULT_TIMEOUT_S,
-    max_attempts: int = MAX_ATTEMPTS,
     label: str = "call",
 ) -> str:
-    """One text completion. Retries 429/5xx with backoff; raises LLMError on give-up."""
-    client = get_client()
+    """One text completion, with the shared retry/fallback policy."""
     config = types.GenerateContentConfig(
         temperature=temperature,
         system_instruction=system,
         response_mime_type="application/json" if json_mode else None,
         http_options=types.HttpOptions(timeout=int(timeout_s * 1000)),
     )
-
-    last_error: Optional[Exception] = None
-    for attempt in range(1, max_attempts + 1):
-        _limiter.acquire()
-        started = time.monotonic()
-        try:
-            response = client.models.generate_content(
-                model=model, contents=prompt, config=config
-            )
-        except errors.APIError as exc:
-            elapsed = time.monotonic() - started
-            code = _status_code(exc)
-            last_error = exc
-            if code not in RETRYABLE_CODES or attempt == max_attempts:
-                with usage.lock:
-                    usage.failures += 1
-                raise LLMError(
-                    f"{label}: Gemini call failed after {attempt} attempt(s) "
-                    f"[HTTP {code}] in {elapsed:.1f}s: {exc}"
-                ) from exc
-            delay = _retry_delay_from(exc) or min(2.0 ** attempt + random.uniform(0, 1), 30.0)
-            with usage.lock:
-                usage.retries += 1
-            print(
-                f"[llm] {label}: HTTP {code} on attempt {attempt}/{max_attempts}, "
-                f"retrying in {delay:.1f}s ({exc.__class__.__name__})",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-            continue
-        except Exception as exc:  # transport/timeout errors surface with their real type
-            elapsed = time.monotonic() - started
-            last_error = exc
-            if attempt == max_attempts:
-                with usage.lock:
-                    usage.failures += 1
-                raise LLMError(
-                    f"{label}: Gemini call raised {exc.__class__.__name__} after "
-                    f"{attempt} attempt(s) in {elapsed:.1f}s: {exc}"
-                ) from exc
-            delay = min(2.0 ** attempt + random.uniform(0, 1), 30.0)
-            with usage.lock:
-                usage.retries += 1
-            print(
-                f"[llm] {label}: {exc.__class__.__name__} on attempt {attempt}/{max_attempts}, "
-                f"retrying in {delay:.1f}s: {exc}",
-                file=sys.stderr,
-            )
-            time.sleep(delay)
-            continue
-
-        usage.record(response, time.monotonic() - started)
-        text = getattr(response, "text", None)
-        if not text or not text.strip():
-            finish = "unknown"
-            candidates = getattr(response, "candidates", None) or []
-            if candidates:
-                finish = str(getattr(candidates[0], "finish_reason", "unknown"))
-            raise LLMError(
-                f"{label}: Gemini returned no text (finish_reason={finish}, "
-                f"prompt_feedback={getattr(response, 'prompt_feedback', None)})"
-            )
-        return text
-
-    raise LLMError(f"{label}: exhausted {max_attempts} attempts: {last_error}")
+    return response_text(generate_content(prompt, config), label=label)
 
 
 # -------------------------------------------------------------------- JSON coercion
@@ -334,8 +379,7 @@ def generate_json(prompt: str, **kwargs: Any) -> Any:
 # ---------------------------------------------------------------------- self test
 
 def _selftest(prompt: str) -> int:
-    print(f"[selftest] model: {MODEL}")
-    print(f"[selftest] prompt: {prompt}")
+    print(f"[selftest] primary: {MODEL} | fallbacks: {', '.join(FALLBACK_MODELS) or 'none'}")
     started = time.monotonic()
     text = generate(prompt, label="selftest")
     print(f"[selftest] text response ({time.monotonic() - started:.1f}s):")
