@@ -20,31 +20,43 @@ from .retrieve import Retriever
 
 def run_agent4(
     question: str,
-    corpus_dir: str,
+    corpus_dir: str | None = None,
+    index: Index | None = None,
     hops: int = 3,
     top_k: int = 50,
     batch_size: int = 10,
     max_workers: int = 4,
+    only_source: str | None = None,
 ) -> dict[str, Any]:
     """Run Agent 4 over a bootstrap corpus for one question.
 
     Args:
         question: natural-language query to retrieve candidate artifacts.
         corpus_dir: path containing data/corpus and data/world.json.
+        index: prebuilt Index to reuse.
         hops: number of retrieval hops to expand beyond the initial seeds.
         top_k: maximum number of artifacts to retrieve.
         batch_size: inference batch size for extraction.
         max_workers: parallel extraction worker count.
+        only_source: restrict retrieval to a single artifact source when set.
 
     Returns:
         A dict containing the requested question, retrieved candidates,
-        extracted status items, and detected conflicts.
+        extracted status items, detected conflicts, and extraction stats.
     """
-    index = Index.from_path(Path(corpus_dir))
-    retriever = Retriever(index)
+    if index is None:
+        if corpus_dir is None:
+            raise ValueError("either corpus_dir or index is required")
+        index = Index.from_path(Path(corpus_dir))
+    retriever = Retriever(index, only_source=only_source)
     candidates = retriever.retrieve(question, hops=hops, top_k=top_k)
 
-    items = extract_candidates(candidates, batch_size=batch_size, max_workers=max_workers)
+    items, extraction_stats = extract_candidates(
+        candidates,
+        batch_size=batch_size,
+        max_workers=max_workers,
+        return_stats=True,
+    )
     items = dedupe_status_items(items)
     conflicts = detect_conflicts(items)
 
@@ -53,6 +65,7 @@ def run_agent4(
         "candidates": candidates,
         "items": items,
         "conflicts": conflicts,
+        "extract_stats": extraction_stats,
     }
 
 
@@ -64,6 +77,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--top-k", type=int, default=50, help="Max number of artifacts to retrieve.")
     parser.add_argument("--batch-size", type=int, default=10, help="Extraction batch size.")
     parser.add_argument("--max-workers", type=int, default=4, help="Parallel extraction workers.")
+    parser.add_argument(
+        "--only-source",
+        choices=("slack", "email", "ticket", "doc", "export"),
+        default=None,
+        help="Restrict retrieval and extraction to a single source.",
+    )
     args = parser.parse_args(argv)
 
     result = run_agent4(
@@ -73,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
         top_k=args.top_k,
         batch_size=args.batch_size,
         max_workers=args.max_workers,
+        only_source=args.only_source,
     )
     print(json.dumps(result, indent=2, ensure_ascii=False))
     return 0

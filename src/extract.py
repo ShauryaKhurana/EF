@@ -17,22 +17,12 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from dotenv import load_dotenv
-from google import genai
-from google.genai import errors, types
+from google.genai import types
+
+from src.llm import generate_content
 
 load_dotenv()
 
-MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash").strip()
-FALLBACK_MODELS = [
-    m.strip()
-    for m in os.environ.get(
-        "GEMINI_FALLBACK_MODELS", "gemini-2.5-flash,gemini-2.5-flash-lite"
-    ).split(",")
-    if m.strip() and m.strip() != MODEL
-]
-
-MAX_RETRIES = 3
-MAX_RETRY_WAIT = 65.0
 BATCH_SIZE = 10
 MAX_WORKERS = 4
 
@@ -66,64 +56,6 @@ class QuotaExhausted(RuntimeError):
     pass
 
 
-def _is_rate_limit(error: Exception) -> bool:
-    return isinstance(error, errors.ClientError) and getattr(error, "code", None) == 429
-
-
-def _is_daily_quota(error: Exception) -> bool:
-    return "PerDay" in str(getattr(error, "details", "") or "") or "per day" in str(error).lower()
-
-
-def _retry_delay(error: Exception, default: float = 5.0) -> float:
-    match = re.search(r"retry in ([0-9.]+)s", str(error), re.IGNORECASE)
-    if not match:
-        match = re.search(r"'retryDelay': '([0-9.]+)s'", str(error))
-    return min(float(match.group(1)) + 1 if match else default, MAX_RETRY_WAIT)
-
-
-def require_api_key() -> str:
-    key = (os.environ.get("GEMINI_API_KEY") or "").strip()
-    if not key:
-        raise RuntimeError(
-            "GEMINI_API_KEY is not set. Copy .env.example to .env and fill in your key "
-            "(get one free at https://aistudio.google.com/apikey)."
-        )
-    if key.startswith("your-") or key == "your-gemini-api-key":
-        raise RuntimeError(
-            "GEMINI_API_KEY is still the placeholder from .env.example. Open .env and "
-            "replace 'your-gemini-api-key' with your real key."
-        )
-    return key
-
-
-def generate_content(contents: Any, config: Any, models: list[str] | None = None) -> Any:
-    client = genai.Client(api_key=require_api_key())
-    candidates = models or [MODEL, *FALLBACK_MODELS]
-    last_error: Exception | None = None
-
-    for model in candidates:
-        for attempt in range(MAX_RETRIES):
-            try:
-                return client.models.generate_content(
-                    model=model, contents=contents, config=config
-                )
-            except Exception as e:  # noqa: BLE001
-                if not _is_rate_limit(e):
-                    raise
-                last_error = e
-                if _is_daily_quota(e) or attempt == MAX_RETRIES - 1:
-                    if len(candidates) > 1:
-                        print(f"[gemini] {model} rate-limited; trying next model...")
-                    break
-                delay = _retry_delay(e)
-                print(f"[gemini] {model} rate-limited; retrying in {delay:.0f}s...")
-                time.sleep(delay)
-
-    raise QuotaExhausted(
-        f"All models rate-limited ({', '.join(candidates)}). "
-        f"Check your limits at https://aistudio.google.com/rate-limit or set "
-        f"GEMINI_MODEL in .env. Last error: {last_error}"
-    )
 
 
 RESPONSE_SCHEMA: dict[str, Any] = {
@@ -138,7 +70,7 @@ RESPONSE_SCHEMA: dict[str, Any] = {
                     "topic": {"type": "string"},
                     "status": {"type": "string", "enum": list(STATUSES)},
                     "owner": {"type": ["string", "null"]},
-                    "blocker": {"type": ["string", "" , "null"]},
+                    "blocker": {"type": ["string", "null"]},
                     "confidence": {"type": "string", "enum": list(CONFIDENCES)},
                     "evidence": {
                         "type": "array",
@@ -352,11 +284,17 @@ def extract_candidates(
     batch_size: int = BATCH_SIZE,
     max_workers: int = MAX_WORKERS,
     progress: bool = False,
-) -> list[dict]:
+    return_stats: bool = False,
+) -> list[dict] | tuple[list[dict], dict[str, Any]]:
     if not candidates:
+        if return_stats:
+            return [], {"chunks": 0, "failed_chunks": 0, "failed_details": []}
         return []
     if len(candidates) <= batch_size:
-        return _extract_chunk(candidates)
+        items = _extract_chunk(candidates)
+        if return_stats:
+            return items, {"chunks": 1, "failed_chunks": 0, "failed_details": []}
+        return items
 
     batches = [candidates[i : i + batch_size] for i in range(0, len(candidates), batch_size)]
     extracted: list[dict] = []
@@ -373,7 +311,6 @@ def extract_candidates(
             if progress:
                 print(f"  extracted chunk {idx + 1}/{len(batches)}")
 
-    dropped = 0
     if failures:
         print(f"[extract] {len(failures)}/{len(batches)} chunk(s) failed:")
         for failure in failures:
@@ -381,6 +318,8 @@ def extract_candidates(
         if len(failures) == len(batches):
             raise ExtractionError(f"every chunk failed; first error: {failures[0]}")
 
+    if return_stats:
+        return extracted, {"chunks": len(batches), "failed_chunks": len(failures), "failed_details": failures}
     return extracted
 
 

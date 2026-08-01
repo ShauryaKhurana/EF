@@ -68,12 +68,18 @@ class Index:
         self.parent_index: dict[str, str] = {}
         self.time_index: list[str] = []
         self.doc_freq: dict[str, int] = defaultdict(int)
+        self.world = world
         self._build(world)
 
     @classmethod
     def from_path(cls, data_dir: Path) -> "Index":
+        root = data_dir
+        if root.is_dir() and not (root / "world.json").exists() and root.name == "corpus":
+            candidate = root.parent
+            if (candidate / "world.json").exists():
+                root = candidate
         artifacts = []
-        for jsonl in sorted((data_dir / "corpus").glob("*.jsonl")):
+        for jsonl in sorted((root / "corpus").glob("*.jsonl")):
             for line in jsonl.read_text().splitlines():
                 if not line.strip():
                     continue
@@ -81,7 +87,10 @@ class Index:
                 if not ARTIFACT_FIELDS.issubset(artifact.keys()):
                     raise IndexError(f"artifact missing required fields: {artifact.get('artifact_id')}")
                 artifacts.append(artifact)
-        world = json.loads((data_dir / "world.json").read_text())
+        world_path = root / "world.json"
+        if not world_path.exists():
+            raise IndexError(f"world.json not found in {root}")
+        world = json.loads(world_path.read_text())
         return cls(artifacts, world)
 
     def _build(self, world: dict) -> None:
