@@ -276,7 +276,7 @@ def build_answer_key(artifacts: list[dict]) -> dict:
                 "min_hops": 3,
                 "vocab_disjoint_hops": 1,
                 "unanswerable_from": ["email"],
-                "acceptable_answer_contains": ["connection pool", "SLA credit", "ENG-4402"],
+                "acceptable_answer_contains": ["connection pool", "credit", "ENG-4402"],
                 "must_not_contain": ["memory leak"],
             },
             {

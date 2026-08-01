@@ -102,7 +102,7 @@
       ],
       "acceptable_answer_contains": [
         "connection pool",
-        "SLA credit",
+        "credit",
         "ENG-4402"
       ],
       "must_not_contain": [

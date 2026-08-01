@@ -98,6 +98,7 @@ def run_pipeline(
         conflicts=result["conflicts"],
         hop_paths={candidate["artifact_id"]: candidate.get("path", []) for candidate in result["candidates"]},
         world=world,
+        candidates=result["candidates"],
     )
 
     out_file = Path(out_path)

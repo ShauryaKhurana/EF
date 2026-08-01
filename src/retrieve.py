@@ -87,9 +87,11 @@ class Retriever:
             if len(seen) >= top_k:
                 break
 
+        # Alias expansion must respect the source restriction too — this is what
+        # makes --only-source a real ablation instead of a leaky one.
         alias_hits: set[str] = set()
         for alias in self.index.extract_aliases(question):
-            for artifact_id in self.index.alias_key_index.get(alias, set()):
+            for artifact_id in self._filter_source(self.index.alias_key_index.get(alias, set())):
                 if artifact_id not in candidate_paths:
                     candidate_paths[artifact_id] = [artifact_id]
                     seen.add(artifact_id)
@@ -98,7 +100,7 @@ class Retriever:
         for artifact_id in list(candidate_paths):
             artifact = self.index.artifact(artifact_id)
             for alias in self.index.extract_aliases(artifact.get("text", "")):
-                for hit in self.index.alias_key_index.get(alias, set()):
+                for hit in self._filter_source(self.index.alias_key_index.get(alias, set())):
                     if hit not in candidate_paths:
                         candidate_paths[hit] = [artifact_id, hit]
                         seen.add(hit)

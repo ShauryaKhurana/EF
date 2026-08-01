@@ -9,6 +9,9 @@ CORPUS="${2:-data/corpus}"
 echo "== COO Oracle =="
 echo "corpus:   $CORPUS"
 echo "question: $QUESTION"
-python3 -m src.pipeline --corpus "$CORPUS" --question "$QUESTION" --out out/answer.md
+# Use the project venv when present (system python3 lacks the deps).
+PY=python3
+[ -x "$(dirname "$0")/../venv/bin/python" ] && PY="$(dirname "$0")/../venv/bin/python"
+"$PY" -m src.pipeline --corpus "$CORPUS" --question "$QUESTION" --out out/answer.md
 echo "--- answer ---"
 cat out/answer.md
