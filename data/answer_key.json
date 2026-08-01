@@ -1,46 +1,117 @@
 {
   "generated_by": "synthetic/bootstrap/generate.py",
   "seed": 20260514,
-  "event": {
-    "event_id": "evt_001",
-    "day": "2026-05-14",
-    "type": "incident",
-    "severity": 2,
-    "project": "PROJ_AEGIS",
-    "primary_owner": "EMP_082",
-    "impacted": [
-      "svc_bill",
-      "svc_checkout",
-      "CUST_991"
-    ],
-    "facts": {
-      "f1": "root_cause: connection-pool exhaustion in svc-bill-v2",
-      "f2": "trigger: config change merged Thu 18:40 by EMP_141",
-      "f3": "customer_impact: Acme Corp saw 41min checkout downtime",
-      "f4": "financial_impact: $18k SLA credit owed, hits Q3 milestone payout",
-      "f5": "schedule_impact: Aegis GA slips 2 weeks",
-      "f6": "true_owner: EMP_082, not the on-call who was paged"
+  "events": [
+    {
+      "event_id": "evt_001",
+      "day": "2026-05-14",
+      "type": "incident",
+      "severity": 2,
+      "project": "PROJ_AEGIS",
+      "primary_owner": "EMP_082",
+      "impacted": [
+        "svc_bill",
+        "svc_checkout",
+        "CUST_991"
+      ],
+      "facts": {
+        "f1": "root_cause: connection-pool exhaustion in svc-bill-v2",
+        "f2": "trigger: config change merged Thu 18:40 by EMP_141",
+        "f3": "customer_impact: Acme Corp saw 41min checkout downtime",
+        "f4": "financial_impact: $18k SLA credit owed, hits Q3 milestone payout",
+        "f5": "schedule_impact: Aegis GA slips 2 weeks",
+        "f6": "true_owner: EMP_082, not the on-call who was paged"
+      }
+    },
+    {
+      "event_id": "evt_002",
+      "day": "2026-04-28",
+      "type": "incident",
+      "severity": 3,
+      "project": "PROJ_HELIX",
+      "primary_owner": "EMP_011",
+      "impacted": [
+        "svc_auth"
+      ],
+      "facts": {
+        "g1": "root_cause: OAuth vendor rate-limited us after a traffic spike",
+        "g2": "trigger: marketing launched a promo without notifying eng, 5x auth traffic",
+        "g3": "decision: Helix beta paused for one week pending a vendor plan upgrade",
+        "g4": "financial_impact: $9k/month unbudgeted cost for the vendor plan upgrade",
+        "g5": "true_decider: EMP_001 approved the pause; EMP_008 only relayed it"
+      }
+    },
+    {
+      "event_id": "evt_003",
+      "day": "2026-05-06",
+      "type": "incident",
+      "severity": 2,
+      "project": "PROJ_AEGIS",
+      "primary_owner": "EMP_006",
+      "impacted": [
+        "svc_checkout",
+        "CUST_882"
+      ],
+      "facts": {
+        "h1": "root_cause: cache TTL dropped to 0 in a perf-tuning PR, cache went cold",
+        "h2": "trigger: the perf-tuning PR merged Monday, only one reviewer caught the TTL change and approved anyway",
+        "h3": "customer_impact: Northwind saw 22 minutes of degraded checkout, opened a P1",
+        "h4": "true_owner: EMP_006 rolled back the cache config; the page had first routed to EMP_009"
+      }
     }
-  },
+  ],
   "fact_placement": {
-    "f1": [
-      "slk_0041"
-    ],
-    "f2": [
-      "tkt_4402_c2"
-    ],
-    "f3": [
-      "eml_0032"
-    ],
-    "f4": [
-      "slk_0067"
-    ],
-    "f5": [
-      "slk_0072"
-    ],
-    "f6": [
-      "tkt_4402_c3"
-    ]
+    "evt_001": {
+      "f1": [
+        "slk_0041"
+      ],
+      "f2": [
+        "tkt_4402_c2"
+      ],
+      "f3": [
+        "eml_0032"
+      ],
+      "f4": [
+        "slk_0067"
+      ],
+      "f5": [
+        "slk_0072"
+      ],
+      "f6": [
+        "tkt_4402_c3"
+      ]
+    },
+    "evt_002": {
+      "g1": [
+        "slk_0211"
+      ],
+      "g2": [
+        "slk_0212"
+      ],
+      "g3": [
+        "slk_0214"
+      ],
+      "g4": [
+        "slk_0213"
+      ],
+      "g5": [
+        "slk_0215"
+      ]
+    },
+    "evt_003": {
+      "h1": [
+        "slk_0311"
+      ],
+      "h2": [
+        "slk_0312"
+      ],
+      "h3": [
+        "slk_0313"
+      ],
+      "h4": [
+        "tkt_5510_c2"
+      ]
+    }
   },
   "conflicts": [
     {
@@ -63,20 +134,62 @@
       "resolution": "newer_wins",
       "resolution_note": "Later timestamp and higher source authority: a ticket postmortem outranks an on-call's first guess in Slack.",
       "winning_artifact": "tkt_4402_c5"
+    },
+    {
+      "conflict_id": "cnf_002",
+      "subject": "cause of the 2026-04-28 Helix login failures",
+      "positions": [
+        {
+          "artifact_id": "slk_0220",
+          "claim": "our token refresh bug",
+          "ts_local": "08:05:00",
+          "source_authority": 1
+        },
+        {
+          "artifact_id": "slk_0225",
+          "claim": "vendor rate limit change",
+          "ts_local": "12:00:00",
+          "source_authority": 3
+        }
+      ],
+      "resolution": "newer_wins",
+      "resolution_note": "Later timestamp and higher source authority: the vendor-confirmed cause outranks the first guess in Slack.",
+      "winning_artifact": "slk_0225"
     }
   ],
   "silence_pairs": [
     {
       "silence_id": "sil_001",
       "fact": "f5",
-      "fact_text": "schedule_impact: Aegis GA slips 2 weeks",
       "person": "EMP_002",
-      "deadline": "2026-05-14T14:20:41-07:00",
       "expected_channel": "email",
       "delivered_in": "slk_0072",
-      "delivered_at": "2026-05-14T13:15:38-07:00",
+      "delivered_at_time": "13:15:38",
       "violating_artifact": "eml_0038",
+      "deadline_time": "14:20:41",
       "note": "EMP_002 committed to the original GA date at 14:20. The slip was decided at 13:15 in #eng-aegis, 65 minutes earlier. She is not a member of that channel and no artifact relayed it to her."
+    },
+    {
+      "silence_id": "sil_002",
+      "fact": "g3",
+      "person": "EMP_008",
+      "expected_channel": "email",
+      "delivered_in": "slk_0214",
+      "delivered_at_time": "10:00:00",
+      "violating_artifact": "eml_0210",
+      "deadline_time": "11:30:00",
+      "note": "EMP_008 told the beta cohort it would be resolved 'by tomorrow morning' at 11:30. Engineering had already decided on a full week's pause at 10:00, in #eng-helix \u2014 a channel she is not a member of."
+    },
+    {
+      "silence_id": "sil_003",
+      "fact": "h1",
+      "person": "EMP_002",
+      "expected_channel": "email",
+      "delivered_in": "slk_0311",
+      "delivered_at_time": "14:20:00",
+      "violating_artifact": "eml_0310",
+      "deadline_time": "15:20:00",
+      "note": "EMP_002 told Northwind it was 'a one-off blip' at 15:20, before the root cause was even confirmed rolled back. The cache diagnosis was in #eng-billing at 14:20 \u2014 a channel she is not a member of."
     }
   ],
   "questions": [
@@ -224,9 +337,234 @@
         "signed off",
         "approved"
       ],
+      "leak_terms": [
+        "svc-auth security review",
+        "security review of svc-auth",
+        "svc-auth pentest",
+        "svc-auth audit"
+      ],
       "expected_behaviour": "abstain",
       "expected_referral": "EMP_011",
       "note": "svc-auth exists and is owned by EMP_011, but no artifact in the corpus mentions a security review. A confident answer here is a hallucination. The win condition is 'I don't have that \u2014 svc-auth is owned by Omar Haddad, ask him.'"
+    },
+    {
+      "question_id": "Q_007",
+      "type": "multi_hop",
+      "asked_as": "EMP_002",
+      "question": "Why did the Helix beta login break this morning?",
+      "gold_facts": [
+        "evt_002:g1",
+        "evt_002:g2"
+      ],
+      "gold_artifacts": [
+        "slk_0211",
+        "slk_0212"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 1,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "vendor",
+        "rate limit"
+      ],
+      "must_not_contain": [
+        "token refresh bug"
+      ]
+    },
+    {
+      "question_id": "Q_008",
+      "type": "multi_hop",
+      "asked_as": "EMP_002",
+      "question": "What did engineering decide about Helix, and what does it cost us?",
+      "gold_facts": [
+        "evt_002:g3",
+        "evt_002:g4"
+      ],
+      "gold_artifacts": [
+        "slk_0214",
+        "slk_0213"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "week",
+        "9k"
+      ],
+      "must_not_contain": []
+    },
+    {
+      "question_id": "Q_009",
+      "type": "multi_hop",
+      "asked_as": "EMP_008",
+      "question": "Who actually decided to pause Helix, and did I know before I told the beta cohort?",
+      "gold_facts": [
+        "evt_002:g5",
+        "evt_002:g3"
+      ],
+      "gold_artifacts": [
+        "slk_0215",
+        "slk_0214"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "EMP_001"
+      ],
+      "must_not_contain": []
+    },
+    {
+      "question_id": "Q_010",
+      "type": "conflict",
+      "asked_as": "EMP_001",
+      "question": "What caused this morning's Helix login failures?",
+      "gold_facts": [
+        "evt_002:g1"
+      ],
+      "gold_artifacts": [
+        "slk_0220",
+        "slk_0225",
+        "slk_0211"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [],
+      "acceptable_answer_contains": [
+        "vendor",
+        "rate limit"
+      ],
+      "must_not_contain": [],
+      "expects_conflict": "cnf_002",
+      "note": "The vendor-confirmed cause supersedes the on-call's first guess. An answer that stops at 'our token refresh bug' is wrong."
+    },
+    {
+      "question_id": "Q_011",
+      "type": "silence",
+      "asked_as": "EMP_001",
+      "question": "Did we just promise the beta cohort something engineering hasn't confirmed?",
+      "gold_facts": [
+        "evt_002:g3"
+      ],
+      "gold_artifacts": [
+        "slk_0214",
+        "eml_0210"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "slack"
+      ],
+      "acceptable_answer_contains": [
+        "EMP_008"
+      ],
+      "must_not_contain": [],
+      "expects_silence_pair": "sil_002"
+    },
+    {
+      "question_id": "Q_012",
+      "type": "multi_hop",
+      "asked_as": "EMP_002",
+      "question": "Why is Northwind escalating about checkout speed?",
+      "gold_facts": [
+        "evt_003:h3",
+        "evt_003:h1"
+      ],
+      "gold_artifacts": [
+        "slk_0313",
+        "slk_0311"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 1,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "cache",
+        "TTL"
+      ],
+      "must_not_contain": []
+    },
+    {
+      "question_id": "Q_013",
+      "type": "multi_hop",
+      "asked_as": "EMP_001",
+      "question": "Who actually fixed the Northwind checkout issue, and did the page go to the right person?",
+      "gold_facts": [
+        "evt_003:h4",
+        "evt_003:h2"
+      ],
+      "gold_artifacts": [
+        "tkt_5510_c2",
+        "slk_0312"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "email"
+      ],
+      "acceptable_answer_contains": [
+        "EMP_006"
+      ],
+      "must_not_contain": []
+    },
+    {
+      "question_id": "Q_014",
+      "type": "silence",
+      "asked_as": "EMP_001",
+      "question": "Did we tell Northwind something before we actually knew the cause?",
+      "gold_facts": [
+        "evt_003:h1"
+      ],
+      "gold_artifacts": [
+        "slk_0311",
+        "eml_0310"
+      ],
+      "min_hops": 2,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "ticket"
+      ],
+      "acceptable_answer_contains": [
+        "EMP_002"
+      ],
+      "must_not_contain": [],
+      "expects_silence_pair": "sil_003"
+    },
+    {
+      "question_id": "Q_015",
+      "type": "abstention",
+      "asked_as": "EMP_002",
+      "question": "Has Legal signed off on the Northwind renewal redline?",
+      "gold_facts": [],
+      "gold_artifacts": [],
+      "min_hops": 0,
+      "vocab_disjoint_hops": 0,
+      "unanswerable_from": [
+        "slack",
+        "email",
+        "ticket"
+      ],
+      "acceptable_answer_contains": [],
+      "must_not_contain": [
+        "signed off",
+        "approved",
+        "redline approved"
+      ],
+      "leak_terms": [
+        "redline approved",
+        "legal sign-off",
+        "counsel approved"
+      ],
+      "expected_behaviour": "abstain",
+      "expected_referral": "EMP_010",
+      "note": "Leah Cohen (Counsel) exists in world.json, but no artifact mentions the Northwind renewal redline. The win condition is 'I don't have that \u2014 ask Leah Cohen.'"
     }
   ]
 }

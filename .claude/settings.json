@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3*)", "Bash(pytest*)", "Bash(bash scripts/*)",
+      "Bash(git status*)", "Bash(git diff*)", "Bash(git add*)", "Bash(git commit*)", "Bash(git log*)"
+    ],
+    "ask": ["Bash(pip install*)", "Bash(git push*)"],
+    "deny": ["Read(./.env)", "Read(./.env.*)", "Read(./**/credentials*)"]
+  },
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/no_fakes.py\"" }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/smoke.py\"" }] }
+    ]
+  }
+}

@@ -2,14 +2,11 @@
 # THE judged command. One shot, hands off. Judges pick or modify the question.
 #
 #   scripts/demo.sh "Why is CS flagging churn risk on Acme?" [corpus_dir]
+#
+# Frozen per BUILD_PLAN §1.4 — this is the only line that changes when a stage
+# (extract/crossref/alerts) lands; src/pipeline.py picks it up automatically.
 set -euo pipefail
 QUESTION="${1:?usage: scripts/demo.sh \"<question>\" [corpus_dir]}"
 CORPUS="${2:-data/corpus}"
-echo "== COO Oracle =="
-echo "corpus:   $CORPUS"
-echo "question: $QUESTION"
 mkdir -p out
-python3 orchestrator.py --source corpus --corpus "$CORPUS" --dry-run
-python3 agent.py "$QUESTION" | tee out/answer.md
-echo "--- answer ---"
-cat out/answer.md
+python3 -m src.pipeline --corpus "$CORPUS" --question "$QUESTION" --out out/answer.md

@@ -98,3 +98,107 @@ list of candidate artifacts, whatever chose them.
 - Synthesis truncates the briefing mid-sentence at ~50 words on the 200-artifact corpus
   (`synthesis.py` is nobody's declared lane — flagging, not fixing).
 - Silence detection (Q_005) and explicit conflict records are still unbuilt.
+
+## From Agent 7 (full corpus) — 2026-08-01
+
+Scaled `synthetic/bootstrap/*.py` in place to BUILD_PLAN's Agent 7 target instead
+of writing a separate L0-L4 pipeline (time-boxed decision, not a shortcut on
+quality): `narrative.py` now holds three anchor events (evt_001 billing/Aegis,
+evt_002 Helix vendor throttle, evt_003 Northwind cache latency) and 15 gold
+questions (8 multi-hop, 3 silence, 2 abstention, 2 conflict — the exact
+BUILD_PLAN split). `generate.py` loops over `narrative.EVENTS`/`QUESTIONS` and
+adds per-source exhaust (slack/email/ticket templates) to hit ~3k/300/80
+artifacts. `validate.py` generalized every check that used to assume exactly
+one event/conflict/silence pair to loop over all of them.
+
+`python -m synthetic.bootstrap.generate && python -m synthetic.bootstrap.validate`
+is green: 16/16 checks, 3380 artifacts, byte-identical regeneration, and
+`ingestion.load_corpus_messages()` loads it in ~0.13s with 0 parse failures.
+
+Answer key shape changed for downstream consumers: `key["event"]` (singular) is
+now `key["events"]` (list); `key["fact_placement"]` is now nested by event_id
+(`fact_placement[event_id][fact_id]`) instead of flat. `key["conflicts"]` and
+`key["silence_pairs"]` were already lists and are unchanged in shape.
+
+Not done, flagging rather than fixing: the `~40 anchor events` / `~12 gold`
+scale in BUILD_PLAN is still 3 events, not 12 — the 15-question split was the
+part that's actually gated/demoable, so that's what got built first under time
+pressure. `harness/mutate.py` and `harness/fresh_drop.py` (Agent 8's lane) will
+need to know about multiple events now, not just evt_001.
+
+## Setup/spine work while Agent 4 (extract/crossref) was running — 2026-08-01
+
+**Built the end-to-end spine so the demo runs today, extract/crossref/alerts as
+optional stages.** `src/world.py` (new — ownership + membership lookup over
+`world.json`, no LLM; both abstention and future silence detection need it),
+`src/answer.py` (ported from `agent.py`'s system prompt / citation rules /
+fabricated-citation check; two input modes — extracted StatusItems, or raw
+retrieved artifacts wrapped as low-confidence StatusItems whose claim IS the
+verbatim excerpt so the evidence-substring guarantee holds for free),
+`src/pipeline.py` (the CLI `demo.sh` now calls — `--corpus/--question/--out`,
+plus `--only-source` and `--no-llm`). `extract.py`/`crossref.py`/`alerts.py` are
+each optional imports: missing module → prints `STAGE NOT BUILT (path) —
+<effect>` and degrades, never silently. **This activates automatically the
+moment those modules land — no changes needed here.**
+
+`scripts/demo.sh` is now frozen on `python3 -m src.pipeline ...` per BUILD_PLAN
+§1.4 (it was still calling the root `orchestrator.py`/`agent.py` pipeline before
+this). `scripts/smoke.sh` now runs real assertions (ingest count, the retrieval
+regression test, a `--no-llm` pipeline run) instead of just `compileall`.
+
+**Real bugs found and fixed in `src/index.py` / `src/retrieve.py`:**
+1. `Index.from_path` hard-raised on any artifact missing one of 9 fields and
+   bypassed `src/ingest.py`'s coercion entirely — a judge-injected artifact
+   missing `meta` would have killed the run. Now warns and fills defaults;
+   `pipeline.py` builds the `Index` from `load_corpus()`'s output, not this path.
+2. **Entity-id misattribution (the big one):** `_build_alias_table`'s entity-id
+   resolution checked `entity.get("project_id") or entity.get("service_id") or
+   ...` — but every *service* record also carries its own `project_id` (the
+   project it belongs to), so every service's aliases (`bill-v2`, `svc-auth`,
+   ...) were resolving to the parent *project* entity, not the service. This is
+   why `PROJ_AEGIS` looked like it touched a third of the corpus — it was
+   silently absorbing every one of its services' identities. Fixed to key off
+   the group explicitly.
+3. `external[]` entities (e.g. `EXT_ACME_OPS`) were never added to the alias
+   table at all (no `project_id`/`service_id`/`client_id`/`employee_id` field to
+   match on), so an artifact whose only Acme signal was a recipient like
+   `EXT_ACME_OPS` couldn't be reached by hopping from "Acme" in a question.
+   Added `external_client` mapping (`entity_id -> client_id`).
+4. `--only-source` (the single-channel ablation BUILD_PLAN §5.3 calls "the
+   pitch") leaked results from other sources: the two alias-hop expansion loops
+   in `retrieve()` never applied `_filter_source`. Fixed; leak-checked in a test
+   assertion.
+5. `retrieve()` stopped expanding hops the moment `len(seen) >= top_k` — fine on
+   the 200-artifact bootstrap (naturally took ~3 hops to reach 50), but at real
+   scale hop 1 alone blows past 50 immediately, so **hops 2 and 3 never ran at
+   all**. Now always runs all `hops` iterations, capping only the frontier
+   carried into the next hop (top 100 by score) to stay tractable.
+6. Entity-sharing was scored as a flat `3.0` per shared entity regardless of how
+   common that entity is. Added entity IDF (same BM25-style formula, applied to
+   entities instead of tokens) so a rare shared entity outweighs a corpus-wide
+   hub like a project everyone mentions.
+7. Final candidate ranking fell back to arbitrary hop-insertion order among
+   ties (very common — many candidates share the same structural score). Now
+   ranks by (alias-hit, structural score, BM25 relevance, hop distance).
+8. `src/answer.py`'s abstention detection originally required *zero* citations,
+   but the system prompt correctly tells the model to cite adjacent context even
+   while abstaining — so it never fired. Then an over-broad fix flagged real
+   answers as abstentions because the model hedges with "I don't have anything
+   on that" before delivering a real, citable answer. Fixed by tightening the
+   system prompt itself: that exact phrase is now reserved for true "nothing
+   relevant at all," and answer.py detects abstention by whether the response
+   *opens* with it.
+
+**Known limitation, not fixed — flagging per CLAUDE.md, not papering over it:**
+recall on the current ~3,380-artifact corpus is still poor even after fixes 2,
+5, 6, 7 above (3.4% → 6.9% recall@50 over the 15 gold questions, vs. 91.7% that
+the same code gets on the 200-artifact bootstrap). `scripts/smoke.sh` currently
+**fails** on `tests.test_bootstrap_retrieval` for this reason — left failing on
+purpose rather than weakening the assertion to hide a real regression. The
+entity-id bug fix (#2) was the single biggest lever found and should be re-
+measured after any further corpus/world.json changes, but multi-hop retrieval
+at this scale needs more work than the fixes above before it's demo-reliable:
+seed_candidates' BM25 breadth and the hop/frontier caps were tuned against 200
+artifacts, not 3,380, and haven't been retuned. Whoever picks up Agent 3 next
+should start from `python -m unittest tests.test_bootstrap_retrieval` (currently
+red) and the recall sweep in this note's git history rather than from scratch.

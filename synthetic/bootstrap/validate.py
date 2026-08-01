@@ -2,10 +2,10 @@
 
     python3 -m synthetic.bootstrap.validate
 
-Checks BUILD_PLAN Agent 1's acceptance criteria plus the DATASET_DESIGN
-constraints the corpus exists to satisfy. Every check prints its real number —
-per BUILD_PLAN §5.4, surfaced numbers read as robustness; a bare "ok" reads as
-a magic trick.
+Checks BUILD_PLAN Agent 7's acceptance criteria plus the DATASET_DESIGN
+constraints the corpus exists to satisfy, across all of narrative.EVENTS
+(not just one). Every check prints its real number — per BUILD_PLAN §5.4,
+surfaced numbers read as robustness; a bare "ok" reads as a magic trick.
 
 The load-bearing one is GREP: if grepping a question's own words finds most of
 its gold artifacts, the multi-hop claim is decorative and the whole pitch
@@ -83,7 +83,7 @@ def entity_vocabulary(world: dict) -> set[str]:
         for item in world.get(group, []):
             for value in [item.get(name_key, "")] + item.get("aliases", []):
                 terms.update(re.findall(r"[a-z0-9][a-z0-9'-]*", value.lower()))
-    terms.update({"eng", "aeg", "hlx", "4402", "eng-4402", "aeg-2"})
+    terms.update({"eng", "aeg", "hlx", "4402", "eng-4402", "aeg-2", "5510", "eng-5510"})
     return terms
 
 
@@ -93,8 +93,10 @@ def main() -> int:
     records, parse_problems = load_corpus()
     by_id = {r["artifact_id"]: r for r in records}
     entities = entity_vocabulary(world)
+    membership = {c["channel_id"]: set(c["members"]) for c in world["channels"]}
 
-    print(f"\nBootstrap corpus acceptance — {len(records)} artifacts\n" + "=" * 72)
+    print(f"\nBootstrap corpus acceptance — {len(records)} artifacts, "
+          f"{len(key['events'])} anchor event(s)\n" + "=" * 72)
 
     # --- 1. Schema ----------------------------------------------------------
     schema_errors = []
@@ -141,10 +143,8 @@ def main() -> int:
           "every sender_id resolves" if not unknown_senders else str(unknown_senders))
 
     # --- 4. THE GREP TEST ---------------------------------------------------
-    # BUILD_PLAN Agent 1: grep for the question's content words must find
-    # < 2 of the >= 3 gold artifacts. This is what proves the hops are real.
-    # Reported two ways, because they measure different things and only one of
-    # them is what a judge would actually type:
+    # Grep for the question's content words must find < 2 of the >= 3 gold
+    # artifacts. This is what proves the hops are real. Reported two ways:
     #   literal  — every question word, entity names INCLUDED (the acceptance bar)
     #   disjoint — entity names removed, i.e. the §P2 vocab-disjointness measure
     grep_rows, disjoint_rows = [], []
@@ -170,42 +170,59 @@ def main() -> int:
     check("entity-stripped overlap", True,
           "  ".join(disjoint_rows) + "  (§P2 measure: content words only)")
 
-    # --- 5. §P1 fact partition ----------------------------------------------
-    placement = key["fact_placement"]
-    all_facts = set(key["event"]["facts"])
-    once = all(len(v) == 1 for v in placement.values())
-    check("每 fact placed exactly once".replace("每", "every"), once,
-          ", ".join(f"{k}->{v[0] if v else 'MISSING'}" for k, v in placement.items()))
+    # --- 5. §P1 fact partition, per event -----------------------------------
+    questions_by_event: dict[str, list[dict]] = {}
+    for q in key["questions"]:
+        for gf in q.get("gold_facts", []):
+            eid = gf.split(":")[0]
+            questions_by_event.setdefault(eid, []).append(q)
 
-    cap = math.ceil(len(all_facts) / 3)
-    per_artifact: dict[str, int] = {}
-    for fid, ids in placement.items():
-        for aid in ids:
-            per_artifact[aid] = per_artifact.get(aid, 0) + 1
-    worst = max(per_artifact.values()) if per_artifact else 0
-    check("no artifact over ceil(|F|/3)", worst <= cap,
-          f"max facts on one artifact = {worst}, cap = {cap}")
+    partition_ok, cap_ok, sufficiency_ok, hidden_ok = True, True, True, True
+    partition_detail, cap_detail, sufficiency_detail, hidden_detail = [], [], [], []
+    for event in key["events"]:
+        eid = event["event_id"]
+        placement = key["fact_placement"][eid]
+        all_facts = set(event["facts"])
 
-    facts_by_container: dict[str, set[str]] = {}
-    for fid, ids in placement.items():
-        for aid in ids:
-            facts_by_container.setdefault(by_id[aid]["container_id"], set()).add(fid)
-    sufficient = [c for c, f in facts_by_container.items() if f >= all_facts]
-    check("no container is sufficient alone", not sufficient,
-          " | ".join(f"{c}:{len(f)}/{len(all_facts)}" for c, f in sorted(facts_by_container.items()))
-          + ("" if not sufficient else f"  SUFFICIENT: {sufficient}"))
+        once = all(len(v) == 1 for v in placement.values())
+        partition_ok &= once
+        partition_detail.append(f"{eid}[" + ",".join(
+            f"{k}->{v[0] if v else 'MISSING'}" for k, v in placement.items()) + "]")
 
-    # At least one fact must land where the asked_as persona cannot see it.
-    persona = key["questions"][0]["asked_as"]
-    membership = {c["channel_id"]: set(c["members"]) for c in world["channels"]}
-    hidden = []
-    for fid, ids in placement.items():
-        for aid in ids:
-            container = by_id[aid]["container_id"]
-            if container in membership and persona not in membership[container]:
-                hidden.append(f"{fid}@{container}")
-    check(f"facts hidden from {persona}", len(hidden) >= 1,
-          f"{len(hidden)} of {len(all_facts)} facts outside their channels: {', '.join(hidden)}")
+        cap = math.ceil(len(all_facts) / 3)
+        per_artifact: dict[str, int] = {}
+        for fid, ids in placement.items():
+            for aid in ids:
+                per_artifact[aid] = per_artifact.get(aid, 0) + 1
+        worst = max(per_artifact.values()) if per_artifact else 0
+        cap_ok &= worst <= cap
+        cap_detail.append(f"{eid}: max={worst} cap={cap}")
+
+        facts_by_container: dict[str, set[str]] = {}
+        for fid, ids in placement.items():
+            for aid in ids:
+                facts_by_container.setdefault(by_id[aid]["container_id"], set()).add(fid)
+        sufficient = [c for c, f in facts_by_container.items() if f >= all_facts]
+        sufficiency_ok &= not sufficient
+        sufficiency_detail.append(f"{eid}: " + " | ".join(
+            f"{c}:{len(f)}/{len(all_facts)}" for c, f in sorted(facts_by_container.items()))
+            + ("" if not sufficient else f" SUFFICIENT:{sufficient}"))
+
+        personas = {q["asked_as"] for q in questions_by_event.get(eid, [])}
+        hidden = []
+        for fid, ids in placement.items():
+            for aid in ids:
+                container = by_id[aid]["container_id"]
+                for persona in personas:
+                    if container in membership and persona not in membership[container]:
+                        hidden.append(f"{fid}@{container}(hidden from {persona})")
+        hidden_ok &= len(hidden) >= 1 if personas else True
+        hidden_detail.append(f"{eid}: {len(hidden)} hidden — " + ", ".join(hidden))
+
+    check("every fact placed exactly once", partition_ok, "  ".join(partition_detail))
+    check("no artifact over ceil(|F|/3)", cap_ok, "  ".join(cap_detail))
+    check("no container is sufficient alone", sufficiency_ok, "  ".join(sufficiency_detail))
+    check("facts hidden from asking persona", hidden_ok, "  ".join(hidden_detail))
 
     # --- 6. §P2 vocabulary-disjoint hop -------------------------------------
     disjoint_report = []
@@ -222,42 +239,57 @@ def main() -> int:
     check("vocab-disjoint hops present", disjoint_ok,
           "  ".join(disjoint_report) + "  (zero content-word overlap with the question)")
 
-    # --- 7. Silence pair is genuinely silent --------------------------------
-    sil = key["silence_pairs"][0]
-    carrier = by_id[sil["delivered_in"]]
-    carrier_members = membership.get(carrier["container_id"], set())
-    excluded = sil["person"] not in carrier_members and sil["person"] not in carrier["recipients"]
-    before_deadline = [
-        r["artifact_id"] for r in records
-        if r["ts"] < sil["deadline"]
-        and (sil["person"] in r["recipients"] or sil["person"] in membership.get(r["container_id"], set()))
-        and r["artifact_id"] == sil["delivered_in"]
-    ]
-    check("silence pair verified", excluded and not before_deadline,
-          f"{sil['person']} not in {carrier['container_id']} "
-          f"({sil['delivered_at']}) and received nothing before {sil['deadline']}")
+    # --- 7. Silence pairs are genuinely silent ------------------------------
+    silence_ok = True
+    silence_detail = []
+    for sil in key["silence_pairs"]:
+        carrier = by_id[sil["delivered_in"]]
+        carrier_members = membership.get(carrier["container_id"], set())
+        excluded = sil["person"] not in carrier_members and sil["person"] not in carrier["recipients"]
+        deadline_ts = by_id[sil["violating_artifact"]]["ts"]
+        before_deadline = [
+            r["artifact_id"] for r in records
+            if r["ts"] < deadline_ts and r["artifact_id"] != sil["delivered_in"]
+            and (sil["person"] in r["recipients"] or sil["person"] in membership.get(r["container_id"], set()))
+            and r["container_id"] == carrier["container_id"]
+        ]
+        ok = excluded and not before_deadline
+        silence_ok &= ok
+        silence_detail.append(
+            f"{sil['silence_id']}: {sil['person']} not in {carrier['container_id']} "
+            f"({sil.get('delivered_at_time')}), nothing before {sil.get('deadline_time')}")
+    check("silence pairs verified", silence_ok, "  ".join(silence_detail))
 
-    # --- 8. Conflict pair ---------------------------------------------------
-    cnf = key["conflicts"][0]
-    positions = cnf["positions"]
-    both_exist = all(p["artifact_id"] in by_id for p in positions)
-    winner = max(positions, key=lambda p: (p["ts_local"], p["source_authority"]))
-    check("conflict pair well-formed",
-          both_exist and winner["artifact_id"] == cnf["winning_artifact"],
-          f"{positions[0]['claim']!r} ({positions[0]['ts_local']}) vs "
-          f"{positions[1]['claim']!r} ({positions[1]['ts_local']}) -> {cnf['resolution']}")
+    # --- 8. Conflict pairs ---------------------------------------------------
+    conflict_ok = True
+    conflict_detail = []
+    for cnf in key["conflicts"]:
+        positions = cnf["positions"]
+        both_exist = all(p["artifact_id"] in by_id for p in positions)
+        winner = max(positions, key=lambda p: (p["ts_local"], p["source_authority"]))
+        ok = both_exist and winner["artifact_id"] == cnf["winning_artifact"]
+        conflict_ok &= ok
+        conflict_detail.append(
+            f"{cnf['conflict_id']}: {positions[0]['claim']!r} ({positions[0]['ts_local']}) vs "
+            f"{positions[1]['claim']!r} ({positions[1]['ts_local']}) -> {cnf['resolution']}")
+    check("conflict pairs well-formed", conflict_ok, "  ".join(conflict_detail))
 
-    # --- 9. Abstention question is genuinely unanswerable -------------------
-    abstain = next(q for q in key["questions"] if q["type"] == "abstention")
-    leak_terms = ["security review", "signed off", "sign-off", "pentest", "audit"]
-    accidental = [r["artifact_id"] for r in records
-                  if any(t in r["text"].lower() for t in leak_terms)]
-    check("abstention truly unanswerable", not accidental,
-          f"no artifact mentions a security review "
-          f"(referral target {abstain['expected_referral']} exists in world.json)"
-          if not accidental else f"answerable via {accidental[:3]}")
+    # --- 9. Abstention questions are genuinely unanswerable -----------------
+    abstain_ok = True
+    abstain_detail = []
+    for q in key["questions"]:
+        if q["type"] != "abstention":
+            continue
+        leak_terms = q.get("leak_terms", [])
+        accidental = [r["artifact_id"] for r in records
+                      if any(t in r["text"].lower() for t in leak_terms)]
+        abstain_ok &= not accidental
+        abstain_detail.append(
+            f"{q['question_id']}: no leak (referral {q.get('expected_referral')})"
+            if not accidental else f"{q['question_id']}: answerable via {accidental[:3]}")
+    check("abstention truly unanswerable", abstain_ok, "  ".join(abstain_detail))
 
-    # --- 10. Determinism ----------------------------------------------------
+    # --- 10. Determinism ------------------------------------------------------
     before = {p.name: p.read_bytes() for p in sorted(CORPUS.glob("*.jsonl"))}
     before["world.json"] = (DATA / "world.json").read_bytes()
     subprocess.run([sys.executable, "-m", "synthetic.bootstrap.generate"],
@@ -274,6 +306,9 @@ def main() -> int:
     print(f"  sources: " + ", ".join(
         f"{s}={sum(1 for r in records if r['source'] == s)}"
         for s in sorted({r['source'] for r in records})))
+    q_types = sorted({q["type"] for q in key["questions"]})
+    q_counts = ", ".join(f"{t}={sum(1 for q in key['questions'] if q['type'] == t)}" for t in q_types)
+    print(f"  questions: {len(key['questions'])} ({q_counts})")
     print(f"  gold artifacts: {len(gold_ids)}   near-miss distractors: {len(near_miss)}   "
           f"noise: {len(records) - len(gold_ids) - len(near_miss)}")
     print(f"\n  {len(PASSED)} passed, {len(FAILED)} failed")

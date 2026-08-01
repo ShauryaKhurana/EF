@@ -72,23 +72,80 @@ class Index:
 
     @classmethod
     def from_path(cls, data_dir: Path) -> "Index":
+        """Convenience constructor for tests and ad-hoc scripts.
+
+        Note: this does raw json.loads on each line, not src.ingest.load_corpus — it
+        does NOT get schema coercion (missing ts, non-string sender_id, etc.). The real
+        pipeline (src/pipeline.py) builds the Index from load_corpus()'s output instead,
+        so a bad record surfaces as a named ingest failure rather than crashing here.
+        A record missing a field is warned about and kept, never dropped.
+        """
+        import sys as _sys
+
         artifacts = []
         for jsonl in sorted((data_dir / "corpus").glob("*.jsonl")):
-            for line in jsonl.read_text().splitlines():
+            for line_no, line in enumerate(jsonl.read_text(encoding="utf-8").splitlines(), start=1):
                 if not line.strip():
                     continue
-                artifact = json.loads(line)
-                if not ARTIFACT_FIELDS.issubset(artifact.keys()):
-                    raise IndexError(f"artifact missing required fields: {artifact.get('artifact_id')}")
+                try:
+                    artifact = json.loads(line)
+                except json.JSONDecodeError as exc:
+                    print(f"[index] skipping {jsonl.name}:{line_no}: not valid JSON ({exc.msg})", file=_sys.stderr)
+                    continue
+                missing = ARTIFACT_FIELDS - artifact.keys()
+                if missing:
+                    print(
+                        f"[index] {jsonl.name}:{line_no} artifact "
+                        f"{artifact.get('artifact_id', '?')!r} missing fields {sorted(missing)}; "
+                        f"kept with defaults",
+                        file=_sys.stderr,
+                    )
+                    for field_name in missing:
+                        artifact[field_name] = [] if field_name == "recipients" else ({} if field_name in ("meta", "raw") else None)
+                if not artifact.get("artifact_id"):
+                    print(f"[index] skipping {jsonl.name}:{line_no}: no artifact_id (unciteable)", file=_sys.stderr)
+                    continue
                 artifacts.append(artifact)
-        world = json.loads((data_dir / "world.json").read_text())
+        world = json.loads((data_dir / "world.json").read_text(encoding="utf-8"))
         return cls(artifacts, world)
 
     def _build(self, world: dict) -> None:
         self._build_alias_table(world)
+        self._build_external_map(world)
         for artifact_id, artifact in self.artifacts.items():
             self._index_artifact(artifact_id, artifact)
         self._finalize_time_index()
+        self._compute_entity_idf()
+
+    def _compute_entity_idf(self) -> None:
+        """Same BM25-style IDF as bm25_scores, applied to entities instead of tokens.
+
+        At real corpus scale a project like PROJ_AEGIS touches a third of every
+        artifact — "shares an entity" stops being a useful signal for it. Without this,
+        entity-sharing hops are dominated by whichever entity has the most artifacts,
+        which is the opposite of what multi-hop retrieval is supposed to find. A rare
+        shared entity (a specific ticket, a specific person pair) should outweigh a
+        common one by a lot, not tie with it.
+        """
+        n = max(1, len(self.artifacts))
+        self.entity_idf: dict[str, float] = {}
+        for entity_id, artifact_ids in self.entity_index.items():
+            df = len(artifact_ids)
+            self.entity_idf[entity_id] = max(0.05, log((n - df + 0.5) / (df + 0.5) + 1))
+
+    def _build_external_map(self, world: dict) -> None:
+        """external[].entity_id -> the client_id it belongs to (e.g. EXT_ACME_OPS -> CUST_991).
+
+        Without this, an artifact whose only Acme signal is a recipient like
+        EXT_ACME_OPS never picks up the CUST_991 entity, so it can't be reached by
+        hopping from a question that says "Acme" — a real gap this closes.
+        """
+        self.external_client: dict[str, str] = {}
+        for entity in world.get("external", []):
+            entity_id = entity.get("entity_id")
+            client_id = entity.get("client_id")
+            if entity_id and client_id:
+                self.external_client[entity_id] = client_id
 
     def _build_alias_table(self, world: dict) -> None:
         for group in ("projects", "services", "clients", "employees", "external"):
@@ -106,7 +163,19 @@ class Index:
                 else:
                     alias_terms.extend(entity.get("aliases", []))
                     alias_terms.append(entity.get("name", ""))
-                entity_id = entity.get("project_id") or entity.get("service_id") or entity.get("client_id") or entity.get("employee_id")
+                # Keyed by group, not a generic OR chain: a service record also carries
+                # its own project_id (the project it belongs to), so checking
+                # project_id first here silently folded every service's aliases into
+                # its parent project's entity instead of the service's own —
+                # e.g. "bill-v2" was resolving to PROJ_AEGIS, not svc_bill. That
+                # collapsed the fine-grained entity a multi-hop path actually needs and
+                # made the project entity a much bigger hub than it should be.
+                id_field = {
+                    "projects": "project_id", "services": "service_id",
+                    "clients": "client_id", "employees": "employee_id",
+                    "external": "entity_id",
+                }[group]
+                entity_id = entity.get(id_field)
                 if not entity_id:
                     continue
                 for alias in alias_terms:
@@ -169,8 +238,12 @@ class Index:
         sender = artifact.get("sender_id")
         if sender:
             entities.add(sender)
+            if sender in self.external_client:
+                entities.add(self.external_client[sender])
         for recipient in artifact.get("recipients", []):
             entities.add(recipient)
+            if recipient in self.external_client:
+                entities.add(self.external_client[recipient])
 
         return entities
 

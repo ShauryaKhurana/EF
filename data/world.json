@@ -390,6 +390,15 @@
         "EMP_143",
         "EMP_082"
       ]
+    },
+    {
+      "channel_id": "#eng-helix",
+      "members": [
+        "EMP_011",
+        "EMP_006",
+        "EMP_004",
+        "EMP_001"
+      ]
     }
   ],
   "external": [
@@ -397,6 +406,16 @@
       "entity_id": "EXT_ACME_OPS",
       "name": "Acme Corp operations",
       "client_id": "CUST_991"
+    },
+    {
+      "entity_id": "EXT_HELIX_BETA",
+      "name": "Helix beta cohort contact",
+      "client_id": null
+    },
+    {
+      "entity_id": "EXT_NORTHWIND_OPS",
+      "name": "Northwind Ltd operations",
+      "client_id": "CUST_882"
     }
   ]
 }
