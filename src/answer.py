@@ -268,8 +268,12 @@ Every sentence must carry at least one citation.
 - If the excerpts contain contradictory claims, name both and say which one the \
 later/more authoritative artifact supports (a ticket postmortem outranks an \
 early Slack guess).
-- Reply INSUFFICIENT only when, after following shared identifiers across all \
-excerpts, no chain addresses the question's subject at all.
+- Reply INSUFFICIENT when the specific thing the question asks about (an event, \
+decision, sign-off, review, document, or commitment) never appears in the \
+excerpts — even if the entity itself is mentioned in passing chatter. Routine \
+standup noise about an entity is NOT an answer about a decision or review.
+- Do NOT reply INSUFFICIENT merely because the question's wording differs from \
+the excerpts — when the underlying events are present, assemble the chain.
 - Under 130 words. No preamble, no sign-off."""
 
 
@@ -285,7 +289,7 @@ def _extract_citations(text: str) -> List[str]:
 
 def _synthesize_from_artifacts(
     question: str, candidates: List[dict], conflicts: List[dict]
-) -> Optional[str]:
+) -> Tuple[str, Optional[str]]:
     """LLM answer grounded in the retrieved raw artifacts.
 
     Raw text is what carries the causal chain ("pool's maxed", "credit comes to
@@ -296,7 +300,7 @@ def _synthesize_from_artifacts(
 
     ranked = sorted(candidates, key=lambda c: len(c.get("path", [])))[:24]
     if not ranked:
-        return None
+        return "failed", None
 
     lines = []
     for c in ranked:
@@ -316,17 +320,21 @@ def _synthesize_from_artifacts(
     try:
         text = generate(prompt, system=SYNTH_SYSTEM, label="answer").strip()
     except LLMError:
-        return None
+        return "failed", None
     except Exception:
-        return None
-    if not text or "INSUFFICIENT" in text.upper():
-        return None
+        return "failed", None
+    if not text:
+        return "failed", None
+    if "INSUFFICIENT" in text.upper():
+        # A deliberate model judgement, not an error: the corpus does not
+        # contain what was asked. Trust it and abstain.
+        return "insufficient", None
     # Grounding gate: at least one citation, and every cited id must be real.
     cited = _extract_citations(text)
     known = {c["artifact_id"] for c in candidates}
     if not cited or any(c not in known for c in cited):
-        return None
-    return text
+        return "failed", None
+    return "ok", text
 
 
 def _render_hop_chain(candidates: List[dict], cited: List[str]) -> str:
@@ -348,6 +356,34 @@ def _render_hop_chain(candidates: List[dict], cited: List[str]) -> str:
     return "\n".join(lines)
 
 
+def _abstain(
+    question: str,
+    items: List[dict],
+    conflicts: List[dict],
+    hop_paths: Dict[str, List[str]],
+    world: dict,
+) -> Answer:
+    owner_id, subject = _best_referral_entity(question, world)
+    owner_name = _owner_name(owner_id, world) if owner_id else None
+    subject_text = subject or "that topic"
+    if owner_name:
+        text = f"I don't have enough confirmed information on {subject_text}. {owner_name} would know."
+    elif owner_id:
+        text = f"I don't have enough confirmed information on {subject_text}. Ask {owner_id}."
+    else:
+        text = (f"I don't have enough confirmed information on {subject_text}. "
+                "I could not identify the right owner from world.json.")
+    return Answer(
+        question=question,
+        abstained=True,
+        text=text,
+        items=items,
+        conflicts=conflicts,
+        who_would_know=[owner_id] if owner_id else [],
+        hop_paths=hop_paths,
+    )
+
+
 def generate_answer(
     question: str,
     items: List[dict],
@@ -361,11 +397,14 @@ def generate_answer(
         raise ValueError("world data is required to generate an answer")
 
     # Preferred path: synthesize from the retrieved raw artifacts, which carry
-    # the causal chain verbatim. The StatusItem template below stays as the
-    # offline / LLM-failure fallback so the demo can never die here.
+    # the causal chain verbatim. Three outcomes:
+    #   ok            -> cited answer
+    #   insufficient  -> abstain with a real referral (never answer from noise)
+    #   failed        -> StatusItem template fallback below, so the demo
+    #                    survives an LLM outage
     if candidates:
-        synthesized = _synthesize_from_artifacts(question, candidates, conflicts)
-        if synthesized:
+        status, synthesized = _synthesize_from_artifacts(question, candidates, conflicts)
+        if status == "ok" and synthesized:
             cited = _extract_citations(synthesized)
             trace = _render_hop_chain(candidates, cited)
             text = synthesized + ("\n\nHow I got there:\n" + trace if trace else "")
@@ -377,6 +416,8 @@ def generate_answer(
                 conflicts=conflicts,
                 hop_paths={c: hop_paths.get(c, []) for c in cited},
             )
+        if status == "insufficient":
+            return _abstain(question, items, conflicts, hop_paths, world)
 
     relevant_items = [item for item in items if _item_matches_question(question, item, world)]
     owner_id, subject = _best_referral_entity(question, world)

@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>COOless</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --line: #30363d;
+    --text: #e6edf3; --dim: #8b949e; --accent: #58a6ff;
+    --ok: #3fb950; --warn: #d29922; --bad: #f85149; --cite: #1f6feb;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 15px/1.6 -apple-system, "Segoe UI", sans-serif;
+    max-width: 860px; margin: 0 auto; padding: 40px 20px 80px;
+  }
+  header { margin-bottom: 28px; }
+  h1 { font-size: 30px; letter-spacing: -0.5px; }
+  h1 span { color: var(--accent); }
+  .tag { color: var(--dim); margin-top: 4px; }
+
+  .ask { display: flex; gap: 10px; margin: 22px 0 10px; }
+  input[type=text] {
+    flex: 1; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px 14px; color: var(--text); font-size: 15px;
+  }
+  input[type=text]:focus { outline: none; border-color: var(--accent); }
+  button {
+    background: var(--accent); color: #0d1117; border: none; border-radius: 8px;
+    padding: 12px 22px; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { opacity: 0.45; cursor: wait; }
+
+  .scope { display: flex; align-items: center; gap: 8px; color: var(--dim); font-size: 13px; }
+  select {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 4px 8px; font-size: 13px;
+  }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 26px; }
+  .chip {
+    background: var(--panel); border: 1px solid var(--line); color: var(--dim);
+    border-radius: 999px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  }
+  .chip:hover { color: var(--text); border-color: var(--accent); }
+
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 22px 24px; margin-bottom: 16px;
+  }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px;
+             color: var(--dim); margin-bottom: 12px; }
+  .answer { font-size: 16px; white-space: pre-wrap; }
+  .abstained { border-left: 3px solid var(--warn); padding-left: 16px; }
+  .cite {
+    background: rgba(31,111,235,0.15); color: var(--accent);
+    border-radius: 4px; padding: 1px 6px; font: 12.5px ui-monospace, monospace;
+    white-space: nowrap;
+  }
+  .trace { font: 13px/1.9 ui-monospace, monospace; color: var(--dim); white-space: pre-wrap; }
+  .trace b { color: var(--text); font-weight: 500; }
+
+  .stats { display: flex; flex-wrap: wrap; gap: 26px; }
+  .stat .v { font-size: 20px; font-weight: 600; }
+  .stat .k { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.8px; }
+  .v.ok { color: var(--ok); } .v.warn { color: var(--warn); }
+
+  .loading { color: var(--dim); padding: 26px 4px; display: none; }
+  .dots::after { content: ""; animation: dots 1.4s steps(4) infinite; }
+  @keyframes dots { 0%{content:""} 25%{content:"."} 50%{content:".."} 75%{content:"..."} }
+  .error { color: var(--bad); padding: 14px 4px; display: none; white-space: pre-wrap; }
+  #result { display: none; }
+  footer { color: var(--dim); font-size: 12.5px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>COO<span>less</span></h1>
+  <div class="tag">Ask what's actually happening. Answers are assembled across Slack, email
+  and tickets, cited to source — or it abstains and tells you who would know.</div>
+</header>
+
+<div class="ask">
+  <input id="q" type="text" placeholder="Why is CS flagging churn risk on Acme?"
+         autocomplete="off" spellcheck="false">
+  <button id="go">Ask</button>
+</div>
+<div class="scope">
+  channel scope:
+  <select id="scope">
+    <option value="">all channels (full traversal)</option>
+    <option value="email">email only — the inbox-assistant ablation</option>
+    <option value="slack">slack only</option>
+    <option value="ticket">tickets only</option>
+  </select>
+</div>
+
+<div class="chips" id="chips">
+  <div class="chip">Why is CS flagging churn risk on Acme?</div>
+  <div class="chip">What is holding up the Aegis GA date?</div>
+  <div class="chip">Who actually owns svc-bill-v2, and who got paged?</div>
+  <div class="chip">What caused the billing outage on May 14?</div>
+  <div class="chip">Who signed off on the svc-auth security review?</div>
+</div>
+
+<div class="loading" id="loading">Traversing the company<span class="dots"></span>
+  <div style="font-size:12.5px;margin-top:6px">free tier can wait out a rate limit — up to a minute is normal</div>
+</div>
+<div class="error" id="error"></div>
+
+<div id="result">
+  <div class="card">
+    <h2 id="answer-label">Answer</h2>
+    <div class="answer" id="answer"></div>
+  </div>
+  <div class="card" id="trace-card">
+    <h2>How it got there</h2>
+    <div class="trace" id="trace"></div>
+  </div>
+  <div class="card">
+    <h2>The honest numbers</h2>
+    <div class="stats" id="stats"></div>
+  </div>
+</div>
+
+<footer>Every claim carries its artifact id, validated in Python against the corpus —
+an answer citing an unknown source is rejected before you see it.</footer>
+
+<script>
+const $ = id => document.getElementById(id);
+
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function renderCitations(text) {
+  // [slk_0041] or [eml_0032, slk_0067] -> chip per id
+  return esc(text).replace(/\[([a-z]{3}_[0-9a-z_]+(?:\s*,\s*[a-z]{3}_[0-9a-z_]+)*)\]/g,
+    (_, group) => group.split(/\s*,\s*/)
+      .map(id => `<span class="cite">${id}</span>`).join(" "));
+}
+
+function renderStats(r) {
+  const scope = r.only_source ? `${r.only_source} only` : "all channels";
+  const recall = r.recall ?? "n/a";
+  const recallClass = String(recall).startsWith("n/a") ? "" :
+    (String(recall).includes("1.00") ? "ok" : "warn");
+  const stats = [
+    ["recall vs answer key", recall, recallClass],
+    ["scope", scope, r.only_source ? "warn" : ""],
+    ["candidates retrieved", r.candidates, ""],
+    ["wall clock", r.wall_clock + "s", ""],
+    ["cost", "$0.00", "ok"],
+  ];
+  $("stats").innerHTML = stats.map(([k, v, c]) =>
+    `<div class="stat"><div class="v ${c}">${esc(String(v))}</div><div class="k">${k}</div></div>`
+  ).join("");
+}
+
+async function ask() {
+  const question = $("q").value.trim();
+  if (!question) return;
+  $("go").disabled = true;
+  $("result").style.display = "none";
+  $("error").style.display = "none";
+  $("loading").style.display = "block";
+  try {
+    const res = await fetch("/api/ask", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({question, only_source: $("scope").value}),
+    });
+    const r = await res.json();
+    if (!res.ok) throw new Error(r.error || res.statusText);
+
+    $("answer-label").textContent = r.abstained ? "No answer — and that's deliberate" : "Answer";
+    $("answer").className = "answer" + (r.abstained ? " abstained" : "");
+    $("answer").innerHTML = renderCitations(r.answer);
+    $("trace-card").style.display = r.trace.length ? "block" : "none";
+    $("trace").innerHTML = r.trace.map(line => {
+      const m = line.match(/^(.*?)\s{2,}\((.*)\)$/);
+      return m ? `<b>${esc(m[1])}</b>   <span>(${esc(m[2])})</span>` : esc(line);
+    }).join("\n");
+    renderStats(r);
+    $("result").style.display = "block";
+  } catch (e) {
+    $("error").textContent = String(e.message || e);
+    $("error").style.display = "block";
+  } finally {
+    $("loading").style.display = "none";
+    $("go").disabled = false;
+  }
+}
+
+$("go").addEventListener("click", ask);
+$("q").addEventListener("keydown", e => { if (e.key === "Enter") ask(); });
+$("chips").addEventListener("click", e => {
+  if (e.target.classList.contains("chip")) { $("q").value = e.target.textContent; ask(); }
+});
+</script>
+</body>
+</html>

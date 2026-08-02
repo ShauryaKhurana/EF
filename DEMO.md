@@ -3,6 +3,22 @@
 One command, three beats, ~135 seconds. Everything below was run for real before
 this file was written; expected outputs are pasted from actual runs.
 
+## Web UI (optional — same pipeline, nicer on a projector)
+
+```bash
+venv/bin/python web/server.py     # -> http://localhost:8765
+```
+
+Question box with the five rehearsed questions as one-click chips, a **channel
+scope** dropdown that runs the ablation live (switch to "email only", re-ask,
+watch recall fall from 3/3 to 1/3), citations rendered as chips, the hop trace,
+and the honest numbers (recall, candidates, wall clock, $0.00). Abstentions
+render as their own "No answer — and that's deliberate" card.
+
+Same rate-limit reality as the CLI: one question ≈ 6 calls, so don't machine-gun
+the chips. The terminal beats below are the fallback if anything web-shaped
+misbehaves on stage — same pipeline underneath.
+
 ## Setup (once, before you're on stage)
 
 ```bash

@@ -9,6 +9,16 @@ Two surfaces over one store:
 
 Uses the **Gemini API** (`gemini-3.6-flash` + `gemini-embedding-001`, both free tier).
 
+## Web UI
+
+```bash
+venv/bin/python web/server.py     # -> http://localhost:8765
+```
+
+Ask questions in a browser: one-click rehearsed questions, live single-channel
+ablation via the scope dropdown, citation chips, hop trace, and the run's real
+numbers. Stdlib only — no new dependencies.
+
 ## Ask it something
 
 ```bash
